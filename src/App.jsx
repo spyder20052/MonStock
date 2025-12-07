@@ -251,6 +251,37 @@ export default function App() {
     };
   }, [user]);
 
+  // --- Automatic Low Stock Alerts ---
+
+  useEffect(() => {
+    if (!user || products.length === 0) return;
+
+    // Check if notifications are enabled
+    if (Notification.permission !== 'granted') return;
+
+    // Check once per day using localStorage
+    const lastAlertDate = localStorage.getItem(`lastStockAlert_${user.uid}`);
+    const today = new Date().toDateString();
+
+    if (lastAlertDate === today) return; // Already alerted today
+
+    // Find products with low stock
+    const lowStockProducts = products.filter(p => p.stock <= p.minStock);
+
+    if (lowStockProducts.length > 0) {
+      // Send browser notification
+      new Notification('⚠️ Alerte Stock - MonStock', {
+        body: `${lowStockProducts.length} produit${lowStockProducts.length > 1 ? 's' : ''} en stock bas:\n${lowStockProducts.slice(0, 3).map(p => `• ${p.name}: ${p.stock} restant(s)`).join('\n')}${lowStockProducts.length > 3 ? `\n... et ${lowStockProducts.length - 3} autre(s)` : ''}`,
+        icon: '/favicon.ico',
+        tag: 'low-stock-alert',
+        requireInteraction: true
+      });
+
+      // Mark as alerted for today
+      localStorage.setItem(`lastStockAlert_${user.uid}`, today);
+    }
+  }, [products, user]);
+
   // --- Helpers ---
 
   const handleLogout = async () => {
@@ -1349,41 +1380,58 @@ export default function App() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Numéro WhatsApp</label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input
-                  type="tel"
-                  value={profileData.whatsapp || ''}
-                  onChange={(e) => setProfileData({ ...profileData, whatsapp: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400"
-                  placeholder="+33 6 12 34 56 78"
-                />
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Numéro WhatsApp (Bénin)</label>
+              <div className="flex gap-2">
+                <div className="flex items-center px-3 bg-slate-100 border border-slate-200 rounded-lg text-sm font-medium text-slate-600">
+                  +229
+                </div>
+                <div className="relative flex-1">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input
+                    type="tel"
+                    value={profileData.whatsapp || ''}
+                    onChange={(e) => setProfileData({ ...profileData, whatsapp: e.target.value.replace(/\D/g, '') })}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400"
+                    placeholder="97 00 00 00"
+                    maxLength={8}
+                  />
+                </div>
               </div>
-              <p className="text-xs text-slate-400 mt-1">Format international avec indicatif pays</p>
+              <p className="text-xs text-slate-400 mt-1">8 chiffres sans l'indicatif</p>
             </div>
 
+            {/* Browser Notifications */}
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
               <div>
-                <p className="font-medium text-sm text-slate-700">Alertes stock bas</p>
-                <p className="text-xs text-slate-500">Notification quotidienne si stock critique</p>
+                <p className="font-medium text-sm text-slate-700">Notifications navigateur</p>
+                <p className="text-xs text-slate-500">Alertes automatiques sur cet appareil</p>
               </div>
               <button
                 type="button"
-                onClick={() => setProfileData({ ...profileData, alertsEnabled: !profileData.alertsEnabled })}
-                className={`relative w-12 h-6 rounded-full transition-colors ${profileData.alertsEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+                onClick={async () => {
+                  if (!profileData.browserNotifications) {
+                    const permission = await Notification.requestPermission();
+                    if (permission === 'granted') {
+                      setProfileData({ ...profileData, browserNotifications: true });
+                      new Notification('MonStock', { body: 'Notifications activées !' });
+                    }
+                  } else {
+                    setProfileData({ ...profileData, browserNotifications: false });
+                  }
+                }}
+                className={`relative w-12 h-6 rounded-full transition-colors ${profileData.browserNotifications ? 'bg-emerald-500' : 'bg-slate-300'
                   }`}
               >
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${profileData.alertsEnabled ? 'left-7' : 'left-1'
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${profileData.browserNotifications ? 'left-7' : 'left-1'
                   }`} />
               </button>
             </div>
 
-            {profileData.alertsEnabled && profileData.whatsapp && (
+            {profileData.browserNotifications && (
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                 <p className="text-sm text-emerald-700 flex items-center gap-2">
                   <Check size={16} />
-                  Les alertes seront envoyées à {profileData.whatsapp}
+                  Vous recevrez une alerte quand un produit sera en stock bas
                 </p>
               </div>
             )}
