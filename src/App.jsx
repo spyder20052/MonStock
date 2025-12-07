@@ -3,7 +3,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, History, Settings,
   Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign,
   Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3,
-  User, Mail, Lock, Eye, EyeOff, Check
+  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
@@ -455,52 +455,56 @@ export default function App() {
 
     return (
       <div className="space-y-5">
-        {/* Stats Grid - Professional with subtle color accents */}
+        {/* Stats Grid - Mobile optimized vertical layout */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-indigo-500">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-                <DollarSign size={20} className="text-indigo-600" />
+          <div className="bg-white rounded-xl p-3 lg:p-4 border border-slate-200 border-l-4 border-l-indigo-500">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
+              <div className="w-8 h-8 lg:w-10 lg:h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <DollarSign size={16} className="lg:hidden text-indigo-600" />
+                <DollarSign size={20} className="hidden lg:block text-indigo-600" />
               </div>
-              <div>
-                <p className="text-slate-500 text-xs font-medium">Chiffre d'affaires</p>
-                <h3 className="text-lg font-bold text-slate-800">{formatMoney(stats.totalRevenue)}</h3>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-emerald-500">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
-                <TrendingUp size={20} className="text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-slate-500 text-xs font-medium">Bénéfice</p>
-                <h3 className="text-lg font-bold text-emerald-600">{formatMoney(stats.totalProfit)}</h3>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Chiffre d'affaires</p>
+                <h3 className="text-base lg:text-lg font-bold text-slate-800 truncate">{formatMoney(stats.totalRevenue)}</h3>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-blue-500">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-                <ShoppingCart size={20} className="text-blue-600" />
+          <div className="bg-white rounded-xl p-3 lg:p-4 border border-slate-200 border-l-4 border-l-emerald-500">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
+              <div className="w-8 h-8 lg:w-10 lg:h-10 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <TrendingUp size={16} className="lg:hidden text-emerald-600" />
+                <TrendingUp size={20} className="hidden lg:block text-emerald-600" />
               </div>
-              <div>
-                <p className="text-slate-500 text-xs font-medium">Aujourd'hui</p>
-                <h3 className="text-lg font-bold text-slate-800">{formatMoney(stats.todayRevenue)}</h3>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Bénéfice</p>
+                <h3 className="text-base lg:text-lg font-bold text-emerald-600 truncate">{formatMoney(stats.totalProfit)}</h3>
               </div>
             </div>
           </div>
 
-          <div className={`bg-white rounded-xl p-4 border border-l-4 ${stats.lowStockCount > 0 ? 'border-red-200 border-l-red-500' : 'border-slate-200 border-l-slate-400'}`}>
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${stats.lowStockCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
-                <AlertTriangle size={20} className={stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'} />
+          <div className="bg-white rounded-xl p-3 lg:p-4 border border-slate-200 border-l-4 border-l-blue-500">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
+              <div className="w-8 h-8 lg:w-10 lg:h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <ShoppingCart size={16} className="lg:hidden text-blue-600" />
+                <ShoppingCart size={20} className="hidden lg:block text-blue-600" />
               </div>
-              <div>
-                <p className="text-slate-500 text-xs font-medium">Alertes stock</p>
-                <h3 className={`text-lg font-bold ${stats.lowStockCount > 0 ? 'text-red-600' : 'text-slate-600'}`}>{stats.lowStockCount}</h3>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Aujourd'hui</p>
+                <h3 className="text-base lg:text-lg font-bold text-slate-800 truncate">{formatMoney(stats.todayRevenue)}</h3>
+              </div>
+            </div>
+          </div>
+
+          <div className={`bg-white rounded-xl p-3 lg:p-4 border border-l-4 ${stats.lowStockCount > 0 ? 'border-red-200 border-l-red-500' : 'border-slate-200 border-l-slate-400'}`}>
+            <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
+              <div className={`w-8 h-8 lg:w-10 lg:h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${stats.lowStockCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                <AlertTriangle size={16} className={`lg:hidden ${stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`} />
+                <AlertTriangle size={20} className={`hidden lg:block ${stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Alertes stock</p>
+                <h3 className={`text-base lg:text-lg font-bold ${stats.lowStockCount > 0 ? 'text-red-600' : 'text-slate-600'}`}>{stats.lowStockCount}</h3>
               </div>
             </div>
           </div>
@@ -872,7 +876,24 @@ export default function App() {
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                {/* Quick Stock Replenishment */}
+                <div className="flex items-center gap-2 mb-3 py-2 border-t border-b border-slate-100">
+                  <span className="text-xs text-slate-500">Réapprovisionner:</span>
+                  {[5, 10, 20].map(qty => (
+                    <button
+                      key={qty}
+                      onClick={() => {
+                        updateProduct({ ...product, stock: product.stock + qty });
+                        showNotification(`+${qty} ${product.name}`);
+                      }}
+                      className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded text-xs font-bold hover:bg-emerald-100 transition-colors"
+                    >
+                      +{qty}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <img
                       src={`https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${product.id}`}
@@ -883,7 +904,7 @@ export default function App() {
                       onClick={() => downloadQR(product)}
                       className="text-xs text-indigo-600 font-medium"
                     >
-                      Télécharger QR
+                      QR
                     </button>
                   </div>
                   <div className="flex gap-2">
@@ -891,13 +912,13 @@ export default function App() {
                       onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
                       className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors flex items-center gap-1"
                     >
-                      <Edit3 size={14} /> Éditer
+                      <Edit3 size={14} />
                     </button>
                     <button
                       onClick={() => deleteProduct(product.id)}
                       className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors flex items-center gap-1"
                     >
-                      <Trash2 size={14} /> Suppr.
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
@@ -991,33 +1012,173 @@ export default function App() {
     );
   };
 
-  const HistoryView = () => (
-    <div className="space-y-3 lg:space-y-4">
-      <h2 className="text-lg lg:text-xl font-bold mb-2 lg:mb-4">Historique des ventes</h2>
-      <div className="space-y-2 lg:space-y-3">
-        {sales.map(sale => (
-          <Card key={sale.id} className="p-3 lg:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:bg-slate-50 transition-colors">
-            <div className="flex gap-3 lg:gap-4 items-center">
-              <div className="bg-slate-100 p-2 lg:p-3 rounded-full text-slate-500">
-                <FileText size={18} />
-              </div>
-              <div>
-                <p className="font-bold text-slate-800 text-sm lg:text-base">{formatDate(sale.date)}</p>
-                <p className="text-xs lg:text-sm text-slate-500">{sale.items.length} articles</p>
-              </div>
+  const HistoryView = () => {
+    const [selectedDate, setSelectedDate] = useState(new Date());
+
+    const formatDateKey = (date) => {
+      return date.toISOString().split('T')[0];
+    };
+
+    const filteredSales = useMemo(() => {
+      const selectedKey = formatDateKey(selectedDate);
+      return sales.filter(sale => {
+        const saleDate = sale.date?.toDate ? sale.date.toDate() : new Date(sale.date);
+        return formatDateKey(saleDate) === selectedKey;
+      });
+    }, [sales, selectedDate]);
+
+    const dayTotal = filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
+
+    const goToPreviousDay = () => {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() - 1);
+      setSelectedDate(newDate);
+    };
+
+    const goToNextDay = () => {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() + 1);
+      if (newDate <= new Date()) setSelectedDate(newDate);
+    };
+
+    const goToToday = () => setSelectedDate(new Date());
+
+    const isToday = formatDateKey(selectedDate) === formatDateKey(new Date());
+
+    // Generate last 7 days for quick access
+    const recentDays = useMemo(() => {
+      const days = [];
+      for (let i = 0; i < 7; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        days.push(date);
+      }
+      return days;
+    }, []);
+
+    return (
+      <div className="space-y-4">
+        {/* Date Navigation Header */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <Calendar size={20} className="text-indigo-600" />
+              Historique des ventes
+            </h2>
+            {!isToday && (
+              <button
+                onClick={goToToday}
+                className="text-sm text-indigo-600 font-medium hover:underline"
+              >
+                Aujourd'hui
+              </button>
+            )}
+          </div>
+
+          {/* Day Selector */}
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <button
+              onClick={goToPreviousDay}
+              className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+            >
+              <ChevronLeft size={20} className="text-slate-600" />
+            </button>
+
+            <div className="flex-1 text-center">
+              <p className="text-lg font-bold text-slate-800">
+                {selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+              <p className="text-sm text-slate-500">
+                {selectedDate.getFullYear()}
+              </p>
             </div>
-            <div className="flex items-center justify-between sm:justify-end gap-3 lg:gap-6">
-              <span className="font-bold text-indigo-600 text-base lg:text-lg">{formatMoney(sale.total)}</span>
-              <Button variant="secondary" onClick={() => setViewingReceipt(sale)} className="text-sm lg:text-base">
-                <Printer size={16} /> <span className="hidden sm:inline">Voir Ticket</span><span className="sm:hidden">Ticket</span>
-              </Button>
+
+            <button
+              onClick={goToNextDay}
+              disabled={isToday}
+              className={`p-2 rounded-lg transition-colors ${isToday
+                ? 'bg-slate-50 text-slate-300 cursor-not-allowed'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                }`}
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+
+          {/* Quick Day Access */}
+          <div className="flex gap-2 overflow-x-auto pb-2 date-scroll">
+            {recentDays.map((date, idx) => {
+              const isSelected = formatDateKey(date) === formatDateKey(selectedDate);
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setSelectedDate(date)}
+                  className={`flex-shrink-0 px-3 py-2 rounded-lg text-center transition-all ${isSelected
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                >
+                  <div className="text-xs font-medium">
+                    {date.toLocaleDateString('fr-FR', { weekday: 'short' })}
+                  </div>
+                  <div className="text-sm font-bold">
+                    {date.getDate()}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Day Stats */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-slate-500">Total du jour</p>
+            <p className="text-2xl font-bold text-slate-800">{formatMoney(dayTotal)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-slate-500">Nombre de ventes</p>
+            <p className="text-2xl font-bold text-indigo-600">{filteredSales.length}</p>
+          </div>
+        </div>
+
+        {/* Sales List */}
+        <div className="space-y-2">
+          {filteredSales.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+              <FileText size={40} className="text-slate-200 mx-auto mb-2" />
+              <p className="text-slate-400">Aucune vente ce jour</p>
             </div>
-          </Card>
-        ))}
-        {sales.length === 0 && <p className="text-center text-slate-400 mt-10 text-sm lg:text-base">Aucune vente enregistrée.</p>}
+          ) : (
+            filteredSales.map(sale => (
+              <div key={sale.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center">
+                    <FileText size={18} className="text-indigo-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800">
+                      {(sale.date?.toDate ? sale.date.toDate() : new Date(sale.date)).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <p className="text-xs text-slate-500">{sale.items?.length || 0} article{(sale.items?.length || 0) > 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-lg text-slate-800">{formatMoney(sale.total)}</span>
+                  <button
+                    onClick={() => setViewingReceipt(sale)}
+                    className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors"
+                  >
+                    <Printer size={16} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const ProfileView = () => {
     const [profileData, setProfileData] = useState({
@@ -1122,8 +1283,8 @@ export default function App() {
         {/* Message */}
         {message && (
           <div className={`p-4 rounded-xl flex items-center gap-3 ${message.type === 'success'
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-              : 'bg-red-50 text-red-700 border border-red-200'
+            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            : 'bg-red-50 text-red-700 border border-red-200'
             }`}>
             {message.type === 'success' ? <Check size={18} /> : <AlertTriangle size={18} />}
             <span className="text-sm font-medium">{message.text}</span>
@@ -1172,6 +1333,61 @@ export default function App() {
               Enregistrer les modifications
             </button>
           </form>
+        </div>
+
+        {/* WhatsApp Notifications */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <Phone size={18} className="text-emerald-500" />
+            Alertes WhatsApp
+          </h3>
+
+          <p className="text-sm text-slate-500 mb-4">
+            Recevez une alerte quotidienne sur WhatsApp lorsqu'un produit est en stock bas.
+            Les alertes sont envoyées une fois par jour jusqu'à résolution.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Numéro WhatsApp</label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input
+                  type="tel"
+                  value={profileData.whatsapp || ''}
+                  onChange={(e) => setProfileData({ ...profileData, whatsapp: e.target.value })}
+                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400"
+                  placeholder="+33 6 12 34 56 78"
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">Format international avec indicatif pays</p>
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+              <div>
+                <p className="font-medium text-sm text-slate-700">Alertes stock bas</p>
+                <p className="text-xs text-slate-500">Notification quotidienne si stock critique</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProfileData({ ...profileData, alertsEnabled: !profileData.alertsEnabled })}
+                className={`relative w-12 h-6 rounded-full transition-colors ${profileData.alertsEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+                  }`}
+              >
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${profileData.alertsEnabled ? 'left-7' : 'left-1'
+                  }`} />
+              </button>
+            </div>
+
+            {profileData.alertsEnabled && profileData.whatsapp && (
+              <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                <p className="text-sm text-emerald-700 flex items-center gap-2">
+                  <Check size={16} />
+                  Les alertes seront envoyées à {profileData.whatsapp}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Password Change Form */}
