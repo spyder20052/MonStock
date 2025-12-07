@@ -251,7 +251,7 @@ export default function App() {
     };
   }, [user]);
 
-  // --- Automatic Low Stock Alerts ---
+  // --- Automatic Low Stock Alerts (3x per day at random intervals) ---
 
   useEffect(() => {
     if (!user || products.length === 0) return;
@@ -259,27 +259,70 @@ export default function App() {
     // Check if notifications are enabled
     if (Notification.permission !== 'granted') return;
 
-    // Check once per day using localStorage
-    const lastAlertDate = localStorage.getItem(`lastStockAlert_${user.uid}`);
-    const today = new Date().toDateString();
+    const sendStockAlert = () => {
+      // Find products with low stock
+      const lowStockProducts = products.filter(p => p.stock <= p.minStock);
 
-    if (lastAlertDate === today) return; // Already alerted today
+      if (lowStockProducts.length === 0) return; // No problem, no notification
 
-    // Find products with low stock
-    const lowStockProducts = products.filter(p => p.stock <= p.minStock);
+      // Check alert count for today
+      const today = new Date().toDateString();
+      const alertData = JSON.parse(localStorage.getItem(`stockAlerts_${user.uid}`) || '{}');
 
-    if (lowStockProducts.length > 0) {
-      // Send browser notification
+      // Reset if new day
+      if (alertData.date !== today) {
+        alertData.date = today;
+        alertData.count = 0;
+        alertData.lastTime = 0;
+      }
+
+      // Max 3 alerts per day
+      if (alertData.count >= 3) return;
+
+      // Minimum 2 hours between alerts
+      const now = Date.now();
+      const minInterval = 2 * 60 * 60 * 1000; // 2 hours
+      if (alertData.lastTime && (now - alertData.lastTime) < minInterval) return;
+
+      // Send notification
       new Notification('⚠️ Alerte Stock - MonStock', {
         body: `${lowStockProducts.length} produit${lowStockProducts.length > 1 ? 's' : ''} en stock bas:\n${lowStockProducts.slice(0, 3).map(p => `• ${p.name}: ${p.stock} restant(s)`).join('\n')}${lowStockProducts.length > 3 ? `\n... et ${lowStockProducts.length - 3} autre(s)` : ''}`,
         icon: '/favicon.ico',
-        tag: 'low-stock-alert',
+        tag: 'low-stock-alert-' + alertData.count,
         requireInteraction: true
       });
 
-      // Mark as alerted for today
-      localStorage.setItem(`lastStockAlert_${user.uid}`, today);
-    }
+      // Update alert data
+      alertData.count += 1;
+      alertData.lastTime = now;
+      localStorage.setItem(`stockAlerts_${user.uid}`, JSON.stringify(alertData));
+    };
+
+    // Initial check after 5 seconds
+    const initialTimeout = setTimeout(sendStockAlert, 5000);
+
+    // Set up random interval checks (between 1-4 hours)
+    const getRandomInterval = () => {
+      const minHours = 1;
+      const maxHours = 4;
+      return (minHours + Math.random() * (maxHours - minHours)) * 60 * 60 * 1000;
+    };
+
+    let intervalId;
+    const scheduleNextCheck = () => {
+      const randomDelay = getRandomInterval();
+      intervalId = setTimeout(() => {
+        sendStockAlert();
+        scheduleNextCheck(); // Schedule next random check
+      }, randomDelay);
+    };
+
+    scheduleNextCheck();
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearTimeout(intervalId);
+    };
   }, [products, user]);
 
   // --- Helpers ---
