@@ -2,14 +2,15 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Package, History, Settings,
   Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign,
-  Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3
+  Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3,
+  User, Mail, Lock, Eye, EyeOff, Check
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, addDoc, updateDoc,
   deleteDoc, onSnapshot, query, orderBy
 } from 'firebase/firestore';
-import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signOut, updateProfile, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import AuthPage from './components/AuthPage';
 
 // --- Configuration Firebase & Utilitaires ---
@@ -423,140 +424,247 @@ export default function App() {
 
   // --- Views ---
 
-  const DashboardView = () => (
-    <div className="space-y-5">
-      {/* Stats Grid - Professional with subtle color accents */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-indigo-500">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-              <DollarSign size={20} className="text-indigo-600" />
+  const DashboardView = () => {
+    const [salesFilter, setSalesFilter] = useState('today');
+
+    const filteredSales = useMemo(() => {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      return sales.filter(sale => {
+        const saleDate = sale.date?.toDate ? sale.date.toDate() : new Date(sale.date);
+
+        switch (salesFilter) {
+          case 'today':
+            return saleDate >= today;
+          case '7days':
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return saleDate >= weekAgo;
+          case '30days':
+            const monthAgo = new Date(today);
+            monthAgo.setDate(monthAgo.getDate() - 30);
+            return saleDate >= monthAgo;
+          default:
+            return true;
+        }
+      });
+    }, [sales, salesFilter]);
+
+    const filteredTotal = filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
+
+    return (
+      <div className="space-y-5">
+        {/* Stats Grid - Professional with subtle color accents */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-indigo-500">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
+                <DollarSign size={20} className="text-indigo-600" />
+              </div>
+              <div>
+                <p className="text-slate-500 text-xs font-medium">Chiffre d'affaires</p>
+                <h3 className="text-lg font-bold text-slate-800">{formatMoney(stats.totalRevenue)}</h3>
+              </div>
             </div>
-            <div>
-              <p className="text-slate-500 text-xs font-medium">Chiffre d'affaires</p>
-              <h3 className="text-lg font-bold text-slate-800">{formatMoney(stats.totalRevenue)}</h3>
+          </div>
+
+          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-emerald-500">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
+                <TrendingUp size={20} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-slate-500 text-xs font-medium">Bénéfice</p>
+                <h3 className="text-lg font-bold text-emerald-600">{formatMoney(stats.totalProfit)}</h3>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-blue-500">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                <ShoppingCart size={20} className="text-blue-600" />
+              </div>
+              <div>
+                <p className="text-slate-500 text-xs font-medium">Aujourd'hui</p>
+                <h3 className="text-lg font-bold text-slate-800">{formatMoney(stats.todayRevenue)}</h3>
+              </div>
+            </div>
+          </div>
+
+          <div className={`bg-white rounded-xl p-4 border border-l-4 ${stats.lowStockCount > 0 ? 'border-red-200 border-l-red-500' : 'border-slate-200 border-l-slate-400'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${stats.lowStockCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                <AlertTriangle size={20} className={stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'} />
+              </div>
+              <div>
+                <p className="text-slate-500 text-xs font-medium">Alertes stock</p>
+                <h3 className={`text-lg font-bold ${stats.lowStockCount > 0 ? 'text-red-600' : 'text-slate-600'}`}>{stats.lowStockCount}</h3>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-emerald-500">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
-              <TrendingUp size={20} className="text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-slate-500 text-xs font-medium">Bénéfice</p>
-              <h3 className="text-lg font-bold text-emerald-600">{formatMoney(stats.totalProfit)}</h3>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-blue-500">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-              <ShoppingCart size={20} className="text-blue-600" />
-            </div>
-            <div>
-              <p className="text-slate-500 text-xs font-medium">Aujourd'hui</p>
-              <h3 className="text-lg font-bold text-slate-800">{formatMoney(stats.todayRevenue)}</h3>
-            </div>
-          </div>
-        </div>
-
-        <div className={`bg-white rounded-xl p-4 border border-l-4 ${stats.lowStockCount > 0 ? 'border-red-200 border-l-red-500' : 'border-slate-200 border-l-slate-400'}`}>
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${stats.lowStockCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
-              <AlertTriangle size={20} className={stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'} />
-            </div>
-            <div>
-              <p className="text-slate-500 text-xs font-medium">Alertes stock</p>
-              <h3 className={`text-lg font-bold ${stats.lowStockCount > 0 ? 'text-red-600' : 'text-slate-600'}`}>{stats.lowStockCount}</h3>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions - Clear buttons with icons */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="text-sm font-semibold text-slate-600 mb-3">Actions rapides</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          <button
-            onClick={() => setActiveTab('pos')}
-            className="flex items-center gap-3 p-3 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
-          >
-            <ShoppingCart size={18} />
-            <span className="font-medium text-sm">Nouvelle vente</span>
-          </button>
-          <button
-            onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
-            className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            <Plus size={18} />
-            <span className="font-medium text-sm">Ajouter produit</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            <Package size={18} />
-            <span className="font-medium text-sm">Voir stock</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('sales_history')}
-            className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            <History size={18} />
-            <span className="font-medium text-sm">Historique</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Products Overview - Clean table format */}
-      <div className="bg-white rounded-xl border border-slate-200">
-        <div className="flex items-center justify-between p-4 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Package size={18} className="text-slate-400" />
-            <span className="font-semibold text-slate-700">Produits</span>
-            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{products.length}</span>
-          </div>
-          <button onClick={() => setActiveTab('inventory')} className="text-sm text-indigo-600 font-medium hover:underline">
-            Tout voir →
-          </button>
-        </div>
-
-        {products.length === 0 ? (
-          <div className="p-8 text-center">
-            <Package size={40} className="text-slate-200 mx-auto mb-2" />
-            <p className="text-slate-400 text-sm">Aucun produit</p>
+        {/* Quick Actions - Clear buttons with icons */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-600 mb-3">Actions rapides</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <button
+              onClick={() => setActiveTab('pos')}
+              className="flex items-center gap-3 p-3 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+            >
+              <ShoppingCart size={18} />
+              <span className="font-medium text-sm">Nouvelle vente</span>
+            </button>
             <button
               onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
-              className="mt-3 text-sm text-indigo-600 font-medium hover:underline"
+              className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
             >
-              + Ajouter un produit
+              <Plus size={18} />
+              <span className="font-medium text-sm">Ajouter produit</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('inventory')}
+              className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              <Package size={18} />
+              <span className="font-medium text-sm">Voir stock</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('sales_history')}
+              className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              <History size={18} />
+              <span className="font-medium text-sm">Historique</span>
             </button>
           </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {products.slice(0, 5).map(product => (
-              <div key={product.id} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${product.stock <= product.minStock ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
-                  <span className="font-medium text-sm text-slate-700">{product.name}</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-semibold text-slate-800">{formatMoney(product.price)}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${product.stock <= product.minStock ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                    {product.stock} en stock
-                  </span>
-                </div>
-              </div>
-            ))}
+        </div>
+
+        {/* Sales History with Date Filter */}
+        <div className="bg-white rounded-xl border border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border-b border-slate-100 gap-3">
+            <div className="flex items-center gap-2">
+              <FileText size={18} className="text-slate-400" />
+              <span className="font-semibold text-slate-700">Ventes récentes</span>
+              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">
+                {formatMoney(filteredTotal)}
+              </span>
+            </div>
+
+            {/* Date Filter */}
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+              {[
+                { id: 'today', label: "Aujourd'hui" },
+                { id: '7days', label: '7 jours' },
+                { id: '30days', label: '30 jours' },
+                { id: 'all', label: 'Tout' },
+              ].map(filter => (
+                <button
+                  key={filter.id}
+                  onClick={() => setSalesFilter(filter.id)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${salesFilter === filter.id
+                    ? 'bg-white text-slate-800 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
+
+          {filteredSales.length === 0 ? (
+            <div className="p-8 text-center">
+              <FileText size={40} className="text-slate-200 mx-auto mb-2" />
+              <p className="text-slate-400 text-sm">Aucune vente pour cette période</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+              {filteredSales.slice(0, 10).map(sale => (
+                <div key={sale.id} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                      <FileText size={14} className="text-slate-500" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-slate-700">{formatDate(sale.date)}</p>
+                      <p className="text-xs text-slate-400">{sale.items?.length || 0} article{(sale.items?.length || 0) > 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-sm text-slate-800">{formatMoney(sale.total)}</span>
+                    <button
+                      onClick={() => setViewingReceipt(sale)}
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                    >
+                      <Printer size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {filteredSales.length > 10 && (
+            <div className="p-3 border-t border-slate-100 text-center">
+              <button
+                onClick={() => setActiveTab('sales_history')}
+                className="text-sm text-indigo-600 font-medium hover:underline"
+              >
+                Voir tout l'historique →
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Products Overview - Clean table format */}
+        <div className="bg-white rounded-xl border border-slate-200">
+          <div className="flex items-center justify-between p-4 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Package size={18} className="text-slate-400" />
+              <span className="font-semibold text-slate-700">Produits</span>
+              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{products.length}</span>
+            </div>
+            <button onClick={() => setActiveTab('inventory')} className="text-sm text-indigo-600 font-medium hover:underline">
+              Tout voir →
+            </button>
+          </div>
+
+          {products.length === 0 ? (
+            <div className="p-8 text-center">
+              <Package size={40} className="text-slate-200 mx-auto mb-2" />
+              <p className="text-slate-400 text-sm">Aucun produit</p>
+              <button
+                onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
+                className="mt-3 text-sm text-indigo-600 font-medium hover:underline"
+              >
+                + Ajouter un produit
+              </button>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {products.slice(0, 5).map(product => (
+                <div key={product.id} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${product.stock <= product.minStock ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+                    <span className="font-medium text-sm text-slate-700">{product.name}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-semibold text-slate-800">{formatMoney(product.price)}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${product.stock <= product.minStock ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                      {product.stock} en stock
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const POSView = () => {
     const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -598,14 +706,14 @@ export default function App() {
                   onClick={() => addToCart(product)}
                   disabled={product.stock <= 0}
                   className={`relative flex flex-col p-4 rounded-xl border-2 text-left transition-all group ${product.stock <= 0
-                      ? 'bg-slate-50 opacity-50 cursor-not-allowed border-slate-200'
-                      : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-lg active:scale-95'
+                    ? 'bg-slate-50 opacity-50 cursor-not-allowed border-slate-200'
+                    : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-lg active:scale-95'
                     }`}
                 >
                   {/* Add to cart indicator */}
                   <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${product.stock <= 0
-                      ? 'bg-slate-200'
-                      : 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white'
+                    ? 'bg-slate-200'
+                    : 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white'
                     }`}>
                     <Plus size={14} />
                   </div>
@@ -617,10 +725,10 @@ export default function App() {
                   <div className="flex items-end justify-between w-full mt-auto">
                     <span className="text-lg font-bold text-slate-800">{formatMoney(product.price)}</span>
                     <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${product.stock <= 0
-                        ? 'bg-slate-100 text-slate-500'
-                        : product.stock <= product.minStock
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-emerald-100 text-emerald-700'
+                      ? 'bg-slate-100 text-slate-500'
+                      : product.stock <= product.minStock
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-emerald-100 text-emerald-700'
                       }`}>
                       {product.stock <= 0 ? 'Rupture' : product.stock}
                     </span>
@@ -911,6 +1019,240 @@ export default function App() {
     </div>
   );
 
+  const ProfileView = () => {
+    const [profileData, setProfileData] = useState({
+      displayName: user?.displayName || '',
+      email: user?.email || '',
+    });
+    const [passwords, setPasswords] = useState({
+      current: '',
+      new: '',
+      confirm: ''
+    });
+    const [showPassword, setShowPassword] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [message, setMessage] = useState(null);
+
+    const handleUpdateProfile = async (e) => {
+      e.preventDefault();
+      setSaving(true);
+      setMessage(null);
+
+      try {
+        if (profileData.displayName !== user.displayName) {
+          await updateProfile(auth.currentUser, { displayName: profileData.displayName });
+        }
+
+        if (profileData.email !== user.email) {
+          await updateEmail(auth.currentUser, profileData.email);
+        }
+
+        setMessage({ type: 'success', text: 'Profil mis à jour avec succès!' });
+        showNotification('Profil mis à jour');
+      } catch (error) {
+        console.error('Update error:', error);
+        if (error.code === 'auth/requires-recent-login') {
+          setMessage({ type: 'error', text: 'Reconnectez-vous pour modifier l\'email' });
+        } else {
+          setMessage({ type: 'error', text: 'Erreur lors de la mise à jour' });
+        }
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleChangePassword = async (e) => {
+      e.preventDefault();
+
+      if (passwords.new !== passwords.confirm) {
+        setMessage({ type: 'error', text: 'Les mots de passe ne correspondent pas' });
+        return;
+      }
+
+      if (passwords.new.length < 6) {
+        setMessage({ type: 'error', text: 'Le mot de passe doit avoir au moins 6 caractères' });
+        return;
+      }
+
+      setSaving(true);
+      setMessage(null);
+
+      try {
+        const credential = EmailAuthProvider.credential(user.email, passwords.current);
+        await reauthenticateWithCredential(auth.currentUser, credential);
+        await updatePassword(auth.currentUser, passwords.new);
+
+        setPasswords({ current: '', new: '', confirm: '' });
+        setMessage({ type: 'success', text: 'Mot de passe changé avec succès!' });
+        showNotification('Mot de passe modifié');
+      } catch (error) {
+        console.error('Password change error:', error);
+        if (error.code === 'auth/wrong-password') {
+          setMessage({ type: 'error', text: 'Mot de passe actuel incorrect' });
+        } else {
+          setMessage({ type: 'error', text: 'Erreur lors du changement de mot de passe' });
+        }
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
+              {user?.photoURL ? (
+                <img src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl font-bold text-indigo-600">
+                  {(user?.displayName || user?.email || 'U').charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold text-slate-800 truncate">{user?.displayName || 'Utilisateur'}</h2>
+              <p className="text-sm text-slate-500 truncate">{user?.email}</p>
+              <p className="text-xs text-slate-400 mt-1">Membre depuis {user?.metadata?.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) : 'récemment'}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Message */}
+        {message && (
+          <div className={`p-4 rounded-xl flex items-center gap-3 ${message.type === 'success'
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+            }`}>
+            {message.type === 'success' ? <Check size={18} /> : <AlertTriangle size={18} />}
+            <span className="text-sm font-medium">{message.text}</span>
+          </div>
+        )}
+
+        {/* Profile Info Form */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <User size={18} className="text-slate-400" />
+            Informations personnelles
+          </h3>
+
+          <form onSubmit={handleUpdateProfile} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Nom complet</label>
+              <input
+                type="text"
+                value={profileData.displayName}
+                onChange={(e) => setProfileData({ ...profileData, displayName: e.target.value })}
+                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                placeholder="Votre nom"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Adresse email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input
+                  type="email"
+                  value={profileData.email}
+                  onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                  placeholder="votre@email.com"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? <Loader className="animate-spin" size={16} /> : <Save size={16} />}
+              Enregistrer les modifications
+            </button>
+          </form>
+        </div>
+
+        {/* Password Change Form */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <Lock size={18} className="text-slate-400" />
+            Changer le mot de passe
+          </h3>
+
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Mot de passe actuel</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={passwords.current}
+                  onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
+                  className="w-full pl-10 pr-10 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                  placeholder="••••••••"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Nouveau mot de passe</label>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={passwords.new}
+                onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                placeholder="••••••••"
+                minLength={6}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Confirmer le nouveau mot de passe</label>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={passwords.confirm}
+                onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                placeholder="••••••••"
+                minLength={6}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving || !passwords.current || !passwords.new}
+              className="w-full bg-slate-800 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-slate-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? <Loader className="animate-spin" size={16} /> : <Lock size={16} />}
+              Changer le mot de passe
+            </button>
+          </form>
+        </div>
+
+        {/* Logout */}
+        <button
+          onClick={handleLogout}
+          className="w-full bg-red-50 text-red-600 py-3 rounded-xl font-semibold hover:bg-red-100 transition-colors flex items-center justify-center gap-2 border border-red-200"
+        >
+          <LogOut size={18} />
+          Se déconnecter
+        </button>
+      </div>
+    );
+  };
+
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-slate-100"><Loader className="animate-spin text-indigo-600" size={40} /></div>;
 
   // Show AuthPage if user is not authenticated
@@ -932,8 +1274,9 @@ export default function App() {
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
             { id: 'pos', icon: ShoppingCart, label: 'Caisse (Scan)' },
-            { id: 'inventory', icon: QrCode, label: 'Produits & QR' },
-            { id: 'sales_history', icon: History, label: 'Tickets' },
+            { id: 'inventory', icon: Package, label: 'Produits & QR' },
+            { id: 'sales_history', icon: History, label: 'Historique' },
+            { id: 'profile', icon: User, label: 'Mon Profil' },
           ].map(item => (
             <button
               key={item.id}
@@ -970,7 +1313,7 @@ export default function App() {
               <Package size={16} className="text-white" />
             </div>
             <h2 className="text-base lg:text-xl font-bold text-slate-800 truncate">
-              {activeTab === 'pos' ? 'Caisse' : activeTab === 'inventory' ? 'Stock' : activeTab === 'sales_history' ? 'Tickets' : 'Tableau de bord'}
+              {activeTab === 'pos' ? 'Caisse' : activeTab === 'inventory' ? 'Stock' : activeTab === 'sales_history' ? 'Historique' : activeTab === 'profile' ? 'Mon Profil' : 'Tableau de bord'}
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -992,6 +1335,7 @@ export default function App() {
           {activeTab === 'pos' && <POSView />}
           {activeTab === 'inventory' && <InventoryView />}
           {activeTab === 'sales_history' && <HistoryView />}
+          {activeTab === 'profile' && <ProfileView />}
         </div>
 
         {/* Mobile Floating Cart Button - Only on POS View */}
@@ -1084,12 +1428,13 @@ export default function App() {
 
       {/* Mobile Bottom Navigation */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 pb-safe">
-        <div className="grid grid-cols-4 px-1 py-2">
+        <div className="grid grid-cols-5 px-1 py-2">
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Accueil' },
             { id: 'pos', icon: ShoppingCart, label: 'Vente' },
             { id: 'inventory', icon: Package, label: 'Stock' },
-            { id: 'sales_history', icon: History, label: 'Historique' },
+            { id: 'sales_history', icon: History, label: 'Ventes' },
+            { id: 'profile', icon: User, label: 'Profil' },
           ].map(item => (
             <button
               key={item.id}
