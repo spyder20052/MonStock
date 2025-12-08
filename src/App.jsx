@@ -3,12 +3,12 @@ import {
   LayoutDashboard, ShoppingCart, Package, History, Settings,
   Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign,
   Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3,
-  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image
+  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, addDoc, updateDoc,
-  deleteDoc, onSnapshot, query, orderBy, writeBatch
+  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, signOut, updateProfile, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import AuthPage from './components/AuthPage';
@@ -123,6 +123,9 @@ const Receipt = ({ sale, onClose }) => {
           <div className="mb-4 text-sm text-slate-600">
             <p>Date: {formatDate(sale.date)}</p>
             <p>ID Vente: {sale.id}</p>
+            {sale.customerName && sale.customerName !== 'Anonyme' && (
+              <p className="font-medium text-indigo-700">Client: {sale.customerName}</p>
+            )}
           </div>
 
           <table className="w-full text-sm mb-6">
@@ -318,6 +321,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [cart, setCart] = useState([]);
 
   // UI States
@@ -330,12 +334,26 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showMobileCart, setShowMobileCart] = useState(false);
 
+  // Customer Management States
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [customerManagementEnabled, setCustomerManagementEnabled] = useState(false);
+
   // --- Authentification & Initialisation ---
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
+
+      // Load customer management setting after user is loaded
+      if (u) {
+        const savedSetting = localStorage.getItem(`customerMgmt_${u.uid}`);
+        setCustomerManagementEnabled(savedSetting === 'true');
+      } else {
+        setCustomerManagementEnabled(false);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -359,9 +377,17 @@ export default function App() {
       setSales(items);
     }, (error) => console.error("Erreur ventes:", error));
 
+    // Customers - User-scoped
+    const qCustomers = query(collection(db, 'users', user.uid, 'customers'), orderBy('createdAt', 'desc'));
+    const unsubCustomers = onSnapshot(qCustomers, (snapshot) => {
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setCustomers(items);
+    }, (error) => console.error("Erreur clients:", error));
+
     return () => {
       unsubProducts();
       unsubSales();
+      unsubCustomers();
     };
   }, [user]);
 
@@ -542,6 +568,50 @@ export default function App() {
     }
   };
 
+  // --- Customer Management ---
+
+  const createCustomer = async (customerData) => {
+    if (!user) return null;
+    try {
+      const newCustomer = {
+        name: customerData.name,
+        phone: customerData.phone || '',
+        email: customerData.email || '',
+        notes: customerData.notes || '',
+        createdAt: serverTimestamp(),
+        totalPurchases: 0,
+        totalSpent: 0,
+        totalItems: 0,
+        lastPurchaseDate: null
+      };
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'customers'), newCustomer);
+      showNotification(`Client ${customerData.name} ajouté`);
+      return { id: docRef.id, ...newCustomer };
+    } catch (e) {
+      console.error(e);
+      showNotification("Erreur création client", "error");
+      return null;
+    }
+  };
+
+  const updateCustomer = async (id, customerData) => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'customers', id), customerData);
+      showNotification("Client mis à jour");
+    } catch (e) {
+      showNotification("Erreur mise à jour client", "error");
+    }
+  };
+
+  const deleteCustomer = async (id) => {
+    if (!user) return;
+    if (window.confirm("Supprimer ce client définitivement ?")) {
+      await deleteDoc(doc(db, 'users', user.uid, 'customers', id));
+      showNotification("Client supprimé", "error");
+    }
+  };
+
   const addToCart = (product) => {
     const existingItem = cart.find(item => item.id === product.id);
     const currentQtyInCart = existingItem ? existingItem.qty : 0;
@@ -571,7 +641,9 @@ export default function App() {
         items: cart,
         total: totalSale,
         profit: totalSale - totalCost,
-        userId: user.uid
+        userId: user.uid,
+        customerId: selectedCustomer?.id || null,
+        customerName: selectedCustomer?.name || 'Anonyme'
       };
       const saleRef = await addDoc(collection(db, 'users', user.uid, 'sales'), saleData);
 
@@ -584,7 +656,20 @@ export default function App() {
         }
       }
 
+      // 3. Mettre à jour les statistiques du client
+      if (selectedCustomer) {
+        const customerRef = doc(db, 'users', user.uid, 'customers', selectedCustomer.id);
+        const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
+        await updateDoc(customerRef, {
+          totalPurchases: increment(1),
+          totalSpent: increment(totalSale),
+          totalItems: increment(totalItems),
+          lastPurchaseDate: serverTimestamp()
+        });
+      }
+
       setCart([]);
+      setSelectedCustomer(null); // Reset customer selection
       showNotification("Vente enregistrée !", "success");
 
       // Ouvrir le ticket
@@ -858,6 +943,126 @@ export default function App() {
     );
   };
 
+  // --- Customer Selector Modal ---
+  const CustomerSelectorModal = ({ onClose, onSelectCustomer }) => {
+    const [newCustomerName, setNewCustomerName] = useState('');
+    const [newCustomerPhone, setNewCustomerPhone] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const filteredCustomers = customers.filter(c =>
+      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.phone && c.phone.includes(searchQuery))
+    );
+
+    const handleQuickAdd = async (e) => {
+      e.preventDefault();
+      if (!newCustomerName.trim()) return;
+
+      const customer = await createCustomer({
+        name: newCustomerName,
+        phone: newCustomerPhone
+      });
+
+      if (customer) {
+        onSelectCustomer(customer);
+        onClose();
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+          <div className="p-4 border-b flex justify-between items-center">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <Users size={20} className="text-indigo-600" />
+              Sélectionner un client
+            </h3>
+            <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Rechercher par nom ou téléphone..."
+                className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {/* Quick Add Form */}
+            <form onSubmit={handleQuickAdd} className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
+              <p className="text-xs font-medium text-indigo-700 mb-2">Nouveau client rapide</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Nom"
+                  className="flex-1 px-3 py-2 text-sm border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-300"
+                  value={newCustomerName}
+                  onChange={(e) => setNewCustomerName(e.target.value)}
+                />
+                <input
+                  type="tel"
+                  placeholder="Téléphone (opt.)"
+                  className="w-32 px-3 py-2 text-sm border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-300"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            </form>
+
+            {/* Customer List */}
+            <div className="space-y-2">
+              {/* Anonymous Option */}
+              <button
+                onClick={() => { onSelectCustomer(null); onClose(); }}
+                className="w-full p-3 bg-slate-50 hover:bg-slate-100 rounded-lg text-left border border-slate-200 transition-colors"
+              >
+                <p className="font-medium text-slate-600">Client Anonyme</p>
+                <p className="text-xs text-slate-400">Vente sans client</p>
+              </button>
+
+              {filteredCustomers.length === 0 && searchQuery ? (
+                <p className="text-center text-slate-400 text-sm py-4">Aucun client trouvé</p>
+              ) : (
+                filteredCustomers.map(customer => (
+                  <button
+                    key={customer.id}
+                    onClick={() => { onSelectCustomer(customer); onClose(); }}
+                    className="w-full p-3 bg-white hover:bg-indigo-50 rounded-lg text-left border border-slate-200 hover:border-indigo-300 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-slate-800">{customer.name}</p>
+                        {customer.phone && <p className="text-xs text-slate-500">{customer.phone}</p>}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-500">{customer.totalPurchases || 0} achats</p>
+                        <p className="text-xs font-medium text-indigo-600">{formatMoney(customer.totalSpent || 0)}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const POSView = () => {
     const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
     const filteredProducts = products.filter(p =>
@@ -966,6 +1171,39 @@ export default function App() {
           </div>
 
           <div className="p-4 bg-slate-50 border-t rounded-b-xl space-y-3">
+            {/* Customer Selector */}
+            {customerManagementEnabled && (
+              <div>
+                {selectedCustomer ? (
+                  <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-indigo-200">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                        <User size={16} className="text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm text-slate-800">{selectedCustomer.name}</p>
+                        <p className="text-xs text-slate-500">{selectedCustomer.totalPurchases || 0} achats</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedCustomer(null)}
+                      className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCustomerModal(true)}
+                    className="w-full p-3 border-2 border-dashed border-slate-300 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 text-slate-500 hover:text-indigo-600"
+                  >
+                    <Users size={18} />
+                    <span className="font-medium text-sm">Ajouter un client</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-between items-center text-xl font-bold text-slate-800">
               <span>Total</span>
               <span>{formatMoney(cartTotal)}</span>
@@ -1368,6 +1606,479 @@ export default function App() {
     );
   };
 
+  const CustomerView = () => {
+    const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+    const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null);
+    const [sortBy, setSortBy] = useState('recent'); // recent, spent, purchases
+    const [editingCustomer, setEditingCustomer] = useState(null);
+    const [deletingCustomer, setDeletingCustomer] = useState(null);
+
+    const filteredCustomers = useMemo(() => {
+      let filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
+        (c.phone && c.phone.includes(customerSearchTerm)) ||
+        (c.email && c.email.toLowerCase().includes(customerSearchTerm.toLowerCase()))
+      );
+
+      // Sort
+      switch (sortBy) {
+        case 'spent':
+          filtered.sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
+          break;
+        case 'purchases':
+          filtered.sort((a, b) => (b.totalPurchases || 0) - (a.totalPurchases || 0));
+          break;
+        case 'recent':
+        default:
+          filtered.sort((a, b) => {
+            const dateA = a.lastPurchaseDate?.toDate?.() || a.createdAt?.toDate?.() || new Date(0);
+            const dateB = b.lastPurchaseDate?.toDate?.() || b.createdAt?.toDate?.() || new Date(0);
+            return dateB - dateA;
+          });
+      }
+
+      return filtered;
+    }, [customers, customerSearchTerm, sortBy]);
+
+    const customerStats = useMemo(() => {
+      return {
+        total: customers.length,
+        totalRevenue: customers.reduce((sum, c) => sum + (c.totalSpent || 0), 0),
+        avgSpent: customers.length > 0 ? customers.reduce((sum, c) => sum + (c.totalSpent || 0), 0) / customers.length : 0,
+        topCustomer: customers.reduce((max, c) => (c.totalSpent || 0) > (max.totalSpent || 0) ? c : max, customers[0] || {})
+      };
+    }, [customers]);
+
+    const getCustomerPurchases = (customerId) => {
+      return sales.filter(s => s.customerId === customerId);
+    };
+
+    const getCustomerBadge = (customer) => {
+      const spent = customer.totalSpent || 0;
+      const purchases = customer.totalPurchases || 0;
+
+      if (spent >= 100000) return { text: 'VIP', color: 'bg-purple-100 text-purple-700 border-purple-200' };
+      if (purchases >= 10) return { text: 'Régulier', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+      if (purchases >= 3) return { text: 'Fidèle', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+      return { text: 'Nouveau', color: 'bg-slate-100 text-slate-600 border-slate-200' };
+    };
+
+    // Edit Customer Modal Component
+    const EditCustomerModal = ({ customer, onClose }) => {
+      const [formData, setFormData] = useState({
+        name: customer.name,
+        phone: customer.phone || '',
+        email: customer.email || '',
+        notes: customer.notes || ''
+      });
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (formData.name.trim()) {
+          await updateCustomer(customer.id, formData);
+          onClose();
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-4 border-b flex justify-between items-center bg-indigo-50">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <Edit3 size={20} className="text-indigo-600" />
+                Modifier le client
+              </h3>
+              <button onClick={onClose} className="p-1 hover:bg-indigo-100 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nom *</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Téléphone</label>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="+229 XX XX XX XX"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="email@exemple.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+                <textarea
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                  rows={3}
+                  placeholder="Notes sur le client..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save size={18} />
+                  Enregistrer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    };
+
+    // Delete Customer Modal Component  
+    const DeleteCustomerModal = ({ customer, onClose }) => {
+      const handleDelete = async () => {
+        await deleteCustomer(customer.id);
+        setSelectedCustomerDetail(null);
+        onClose();
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-4 border-b flex justify-between items-center bg-red-50">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <AlertTriangle size={20} className="text-red-600" />
+                Confirmer la suppression
+              </h3>
+              <button onClick={onClose} className="p-1 hover:bg-red-100 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 size={32} className="text-red-600" />
+                </div>
+                <p className="text-center text-slate-700 mb-2">
+                  Êtes-vous sûr de vouloir supprimer le client
+                </p>
+                <p className="text-center font-bold text-lg text-slate-900 mb-2">
+                  {customer.name} ?
+                </p>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-4">
+                  <p className="text-sm text-amber-800 flex items-start gap-2">
+                    <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+                    <span>
+                      Cette action est <strong>irréversible</strong>. L'historique des achats sera conservé mais le client sera définitivement supprimé.
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={onClose}
+                  className="flex-1 px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={18} />
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    if (selectedCustomerDetail) {
+      const customer = customers.find(c => c.id === selectedCustomerDetail);
+      if (!customer) {
+        setSelectedCustomerDetail(null);
+        return null;
+      }
+
+      const customerPurchases = getCustomerPurchases(customer.id);
+      const badge = getCustomerBadge(customer);
+
+      return (
+        <div className="space-y-4">
+          {/* Back Button */}
+          <button
+            onClick={() => setSelectedCustomerDetail(null)}
+            className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium"
+          >
+            <ChevronLeft size={20} />
+            Retour à la liste
+          </button>
+
+          {/* Customer Header */}
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center">
+                  <span className="text-2xl font-bold text-indigo-600">
+                    {customer.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">{customer.name}</h2>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    {customer.phone && <p className="text-sm text-slate-500">{customer.phone}</p>}
+                    {customer.email && <p className="text-sm text-slate-500">{customer.email}</p>}
+                  </div>
+                </div>
+              </div>
+              <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${badge.color}`}>
+                {badge.text}
+              </span>
+            </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-4 gap-4 mt-6">
+              <div className="bg-indigo-50 p-4 rounded-lg">
+                <p className="text-xs text-indigo-600 font-medium">Total dépensé</p>
+                <p className="text-xl font-bold text-indigo-700">{formatMoney(customer.totalSpent || 0)}</p>
+              </div>
+              <div className="bg-emerald-50 p-4 rounded-lg">
+                <p className="text-xs text-emerald-600 font-medium">Achats</p>
+                <p className="text-xl font-bold text-emerald-700">{customer.totalPurchases || 0}</p>
+              </div>
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <p className="text-xs text-blue-600 font-medium">Total articles</p>
+                <p className="text-xl font-bold text-blue-700">{customer.totalItems || 0}</p>
+              </div>
+              <div className="bg-amber-50 p-4 rounded-lg">
+                <p className="text-xs text-amber-600 font-medium">Panier moyen</p>
+                <p className="text-xl font-bold text-amber-700">
+                  {formatMoney(customer.totalPurchases > 0 ? (customer.totalSpent / customer.totalPurchases) : 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Purchase History */}
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+              <FileText size={20} className="text-slate-400" />
+              Historique d'achats ({customerPurchases.length})
+            </h3>
+            <div className="space-y-2">
+              {customerPurchases.length === 0 ? (
+                <p className="text-center text-slate-400 py-8">Aucun achat enregistré</p>
+              ) : (
+                customerPurchases.map(sale => (
+                  <div key={sale.id} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-100 transition-colors">
+                    <div>
+                      <p className="font-medium text-slate-800">
+                        {new Date(sale.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                      <p className="text-xs text-slate-500">{sale.items?.length || 0} article(s)</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-lg text-slate-800">{formatMoney(sale.total)}</span>
+                      <button
+                        onClick={() => setViewingReceipt(sale)}
+                        className="p-2 bg-white rounded-lg border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition-colors"
+                      >
+                        <Printer size={16} className="text-slate-600" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {/* Stats Overview */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <p className="text-xs text-slate-500 font-medium">Total clients</p>
+            <p className="text-2xl font-bold text-slate-800">{customerStats.total}</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <p className="text-xs text-slate-500 font-medium">Revenu total</p>
+            <p className="text-2xl font-bold text-indigo-600">{formatMoney(customerStats.totalRevenue)}</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <p className="text-xs text-slate-500 font-medium">Panier moyen</p>
+            <p className="text-2xl font-bold text-emerald-600">{formatMoney(customerStats.avgSpent)}</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <p className="text-xs text-slate-500 font-medium">Meilleur client</p>
+            <p className="text-sm font-bold text-slate-800 truncate">{customerStats.topCustomer?.name || '-'}</p>
+          </div>
+        </div>
+
+        {/* Search and Sort */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Rechercher un client..."
+                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                value={customerSearchTerm}
+                onChange={(e) => setCustomerSearchTerm(e.target.value)}
+              />
+            </div>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 text-sm"
+            >
+              <option value="recent">Plus récents</option>
+              <option value="spent">Plus dépensé</option>
+              <option value="purchases">Plus d'achats</option>
+            </select>
+            <button
+              onClick={() => setShowCustomerModal(true)}
+              className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 whitespace-nowrap"
+            >
+              <Plus size={18} />
+              Nouveau client
+            </button>
+          </div>
+        </div>
+
+        {/* Customer List */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {filteredCustomers.length === 0 ? (
+            <div className="col-span-full bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <Users size={48} className="text-slate-200 mx-auto mb-3" />
+              <p className="text-slate-400">
+                {customerSearchTerm ? 'Aucun client trouvé' : 'Aucun client enregistré'}
+              </p>
+            </div>
+          ) : (
+            filteredCustomers.map(customer => {
+              const badge = getCustomerBadge(customer);
+              return (
+                <button
+                  key={customer.id}
+                  onClick={() => setSelectedCustomerDetail(customer.id)}
+                  className="bg-white rounded-xl border border-slate-200 p-4 hover:border-indigo-300 hover:shadow-md transition-all text-left"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-lg font-bold text-indigo-600">
+                          {customer.name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-slate-800 truncate">{customer.name}</h3>
+                        {customer.phone && <p className="text-xs text-slate-500">{customer.phone}</p>}
+                      </div>
+                    </div>
+                    <span className={`px-2 py-1 rounded text-[10px] font-bold border flex-shrink-0 ${badge.color}`}>
+                      {badge.text}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div className="bg-slate-50 p-2 rounded">
+                      <p className="text-[10px] text-slate-500 font-medium">Dépensé</p>
+                      <p className="text-sm font-bold text-slate-800">{formatMoney(customer.totalSpent || 0)}</p>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded">
+                      <p className="text-[10px] text-slate-500 font-medium">Achats</p>
+                      <p className="text-sm font-bold text-indigo-600">{customer.totalPurchases || 0}</p>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded">
+                      <p className="text-[10px] text-slate-500 font-medium">Articles</p>
+                      <p className="text-sm font-bold text-blue-600">{customer.totalItems || 0}</p>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded">
+                      <p className="text-[10px] text-slate-500 font-medium">Moyen</p>
+                      <p className="text-sm font-bold text-emerald-600">
+                        {formatMoney(customer.totalPurchases > 0 ? (customer.totalSpent / customer.totalPurchases) : 0)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCustomer(customer);
+                      }}
+                      className="flex-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                    >
+                      <Edit3 size={16} />
+                      Modifier
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingCustomer(customer);
+                      }}
+                      className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                    >
+                      <Trash2 size={16} />
+                      Supprimer
+                    </button>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Customer Edit/Delete Modals */}
+        {editingCustomer && (
+          <EditCustomerModal
+            customer={editingCustomer}
+            onClose={() => setEditingCustomer(null)}
+          />
+        )}
+        {deletingCustomer && (
+          <DeleteCustomerModal
+            customer={deletingCustomer}
+            onClose={() => setDeletingCustomer(null)}
+          />
+        )}
+      </div>
+    );
+  };
+
   const ProfileView = () => {
     const [profileData, setProfileData] = useState({
       displayName: user?.displayName || '',
@@ -1621,6 +2332,48 @@ export default function App() {
           </div>
         </div>
 
+        {/* Customer Management Toggle */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <Users size={18} className="text-indigo-500" />
+            Gestion des clients
+          </h3>
+
+          <p className="text-sm text-slate-500 mb-4">
+            Activez cette fonctionnalité pour suivre vos clients, leurs achats, et leurs statistiques en détail.
+          </p>
+
+          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+            <div>
+              <p className="font-medium text-sm text-slate-700">Activer la gestion des clients</p>
+              <p className="text-xs text-slate-500">Affiche l'onglet Clients et le sélecteur dans la caisse</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const newValue = !customerManagementEnabled;
+                setCustomerManagementEnabled(newValue);
+                localStorage.setItem(`customerMgmt_${user?.uid}`, String(newValue));
+                showNotification(newValue ? 'Gestion clients activée' : 'Gestion clients désactivée');
+              }}
+              className={`relative w-12 h-6 rounded-full transition-colors ${customerManagementEnabled ? 'bg-indigo-500' : 'bg-slate-300'
+                }`}
+            >
+              <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${customerManagementEnabled ? 'left-7' : 'left-1'
+                }`} />
+            </button>
+          </div>
+
+          {customerManagementEnabled && (
+            <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 mt-3">
+              <p className="text-sm text-indigo-700 flex items-center gap-2">
+                <Check size={16} />
+                L'onglet Clients est maintenant accessible et vous pouvez associer des clients à vos ventes
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Password Change Form */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
@@ -1775,6 +2528,7 @@ export default function App() {
             { id: 'pos', icon: ShoppingCart, label: 'Caisse (Scan)' },
             { id: 'inventory', icon: Package, label: 'Produits & QR' },
             { id: 'sales_history', icon: History, label: 'Historique' },
+            ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
             { id: 'profile', icon: User, label: 'Mon Profil' },
           ].map(item => (
             <button
@@ -1812,7 +2566,7 @@ export default function App() {
               <Package size={16} className="text-white" />
             </div>
             <h2 className="text-base lg:text-xl font-bold text-slate-800 truncate">
-              {activeTab === 'pos' ? 'Caisse' : activeTab === 'inventory' ? 'Stock' : activeTab === 'sales_history' ? 'Historique' : activeTab === 'profile' ? 'Mon Profil' : 'Tableau de bord'}
+              {activeTab === 'pos' ? 'Caisse' : activeTab === 'inventory' ? 'Stock' : activeTab === 'sales_history' ? 'Historique' : activeTab === 'customers' ? 'Clients' : activeTab === 'profile' ? 'Mon Profil' : 'Tableau de bord'}
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -1834,6 +2588,7 @@ export default function App() {
           {activeTab === 'pos' && <POSView />}
           {activeTab === 'inventory' && <InventoryView />}
           {activeTab === 'sales_history' && <HistoryView />}
+          {activeTab === 'customers' && customerManagementEnabled && <CustomerView />}
           {activeTab === 'profile' && <ProfileView />}
         </div>
 
@@ -1898,6 +2653,39 @@ export default function App() {
               </div>
 
               <div className="p-4 bg-slate-50 border-t space-y-3 rounded-b-3xl">
+                {/* Customer Selector Mobile */}
+                {customerManagementEnabled && (
+                  <div>
+                    {selectedCustomer ? (
+                      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-indigo-200">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                            <User size={16} className="text-indigo-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm text-slate-800">{selectedCustomer.name}</p>
+                            <p className="text-xs text-slate-500">{selectedCustomer.totalPurchases || 0} achats</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setSelectedCustomer(null)}
+                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setShowCustomerModal(true)}
+                        className="w-full p-3 border-2 border-dashed border-slate-300 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 text-slate-500 hover:text-indigo-600"
+                      >
+                        <Users size={18} />
+                        <span className="font-medium text-sm">Ajouter un client</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center text-xl font-bold text-slate-800">
                   <span>Total</span>
                   <span className="text-indigo-600">{formatMoney(cart.reduce((sum, item) => sum + (item.price * item.qty), 0))}</span>
@@ -1927,12 +2715,13 @@ export default function App() {
 
       {/* Mobile Bottom Navigation */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 pb-safe">
-        <div className="grid grid-cols-5 px-1 py-2">
+        <div className={`grid px-1 py-2 ${customerManagementEnabled ? 'grid-cols-6' : 'grid-cols-5'}`}>
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Accueil' },
             { id: 'pos', icon: ShoppingCart, label: 'Vente' },
             { id: 'inventory', icon: Package, label: 'Stock' },
             { id: 'sales_history', icon: History, label: 'Ventes' },
+            ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
             { id: 'profile', icon: User, label: 'Profil' },
           ].map(item => (
             <button
@@ -1946,8 +2735,8 @@ export default function App() {
                 : 'text-slate-400 hover:text-slate-600'
                 }`}
             >
-              <item.icon size={22} strokeWidth={activeTab === item.id ? 2.5 : 1.5} />
-              <span className={`text-[10px] mt-1 ${activeTab === item.id ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
+              <item.icon size={customerManagementEnabled ? 20 : 22} strokeWidth={activeTab === item.id ? 2.5 : 1.5} />
+              <span className={`${customerManagementEnabled ? 'text-[9px]' : 'text-[10px]'} mt-1 ${activeTab === item.id ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
             </button>
           ))}
         </div>
@@ -1988,6 +2777,13 @@ export default function App() {
 
       {isScannerOpen && (
         <ScannerModal onClose={() => setIsScannerOpen(false)} onScan={handleScan} />
+      )}
+
+      {showCustomerModal && (
+        <CustomerSelectorModal
+          onClose={() => setShowCustomerModal(false)}
+          onSelectCustomer={(customer) => setSelectedCustomer(customer)}
+        />
       )}
 
       {viewingReceipt && (
