@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Package, History, Settings,
-  Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign,
+  Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign, BarChart2,
   Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3,
-  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users
+  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users, Clock, Wifi, WifiOff
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, addDoc, updateDoc,
-  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment
+  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment, enableIndexedDbPersistence
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, signOut, updateProfile, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import AuthPage from './components/AuthPage';
@@ -27,6 +27,20 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// Enable offline persistence
+try {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code == 'failed-precondition') {
+      console.log('Persistence failed: Multiple tabs open');
+    } else if (err.code == 'unimplemented') {
+      console.log('Persistence not supported by browser');
+    }
+  });
+} catch (err) {
+  console.log('Persistence error:', err);
+}
+
 const appId = 'mon-stock-01';
 
 // Charger le script de scan QR Code dynamiquement
@@ -314,6 +328,100 @@ const ScannerModal = ({ onClose, onScan }) => {
   );
 };
 
+// --- Modal de Paiement ---
+const PaymentModal = ({ total, onClose, onConfirm }) => {
+  const [method, setMethod] = useState('cash');
+  const [received, setReceived] = useState('');
+
+  const change = method === 'cash' && received ? Math.max(0, parseFloat(received) - total) : 0;
+  const isValid = method === 'mobile_money' || (method === 'cash' && parseFloat(received) >= total);
+
+  const handleConfirm = () => {
+    if (!isValid) return;
+    onConfirm({
+      method,
+      received: method === 'cash' ? parseFloat(received) : total,
+      change
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <DollarSign className="text-indigo-600" />
+            Paiement
+          </h2>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          <div className="text-center">
+            <p className="text-sm text-slate-500 mb-1">Total à payer</p>
+            <div className="text-4xl font-bold text-slate-800">{formatMoney(total)}</div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setMethod('cash')}
+              className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${method === 'cash'
+                ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                }`}
+            >
+              <DollarSign size={24} />
+              <span className="font-semibold">Espèces</span>
+            </button>
+            <button
+              onClick={() => setMethod('mobile_money')}
+              className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${method === 'mobile_money'
+                ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                }`}
+            >
+              <Phone size={24} />
+              <span className="font-semibold">Mobile Money</span>
+            </button>
+          </div>
+
+          {method === 'cash' && (
+            <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <Input
+                label="Montant reçu"
+                type="number"
+                value={received}
+                onChange={(e) => setReceived(e.target.value)}
+                placeholder="Ex: 5000"
+                autoFocus
+              />
+              <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                <span className="font-medium text-slate-600">A rendre :</span>
+                <span className={`text-xl font-bold ${change > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {formatMoney(change)}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-3">
+          <Button variant="secondary" onClick={onClose} className="flex-1">Annuler</Button>
+          <Button
+            onClick={handleConfirm}
+            disabled={!isValid}
+            className="flex-1"
+          >
+            Valider la vente
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Application Principale ---
 
 export default function App() {
@@ -342,6 +450,12 @@ export default function App() {
 
   // Ingredients States
   const [ingredients, setIngredients] = useState([]);
+
+  // Offline State
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // Payment States
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
   // --- Authentification & Initialisation ---
 
@@ -815,7 +929,7 @@ export default function App() {
     }
   };
 
-  const processSale = async () => {
+  const processSale = async (paymentDetails) => {
     if (cart.length === 0 || !user) return;
 
     const totalSale = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -830,7 +944,10 @@ export default function App() {
         profit: totalSale - totalCost,
         userId: user.uid,
         customerId: selectedCustomer?.id || null,
-        customerName: selectedCustomer?.name || 'Anonyme'
+        customerName: selectedCustomer?.name || 'Anonyme',
+        paymentMethod: paymentDetails?.method || 'cash',
+        amountReceived: paymentDetails?.received || totalSale,
+        changeAmount: paymentDetails?.change || 0
       };
       const saleRef = await addDoc(collection(db, 'users', user.uid, 'sales'), saleData);
 
@@ -1197,6 +1314,318 @@ export default function App() {
     );
   };
 
+  // --- Analytics View Component ---
+  const AnalyticsView = () => {
+    const [period, setPeriod] = useState('7days');
+
+    // Calculate sales data by day
+    const salesByDay = useMemo(() => {
+      const days = period === '7days' ? 7 : period === '30days' ? 30 : 90;
+      const data = [];
+      const now = new Date();
+
+      for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+
+        const daySales = sales.filter(s => {
+          const saleDate = s.date?.toDate ? s.date.toDate() : new Date(s.date);
+          return saleDate.toISOString().split('T')[0] === dateStr;
+        });
+
+        data.push({
+          date: dateStr,
+          label: date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
+          total: daySales.reduce((sum, s) => sum + (s.total || 0), 0),
+          count: daySales.length
+        });
+      }
+      return data;
+    }, [sales, period]);
+
+    const maxSale = Math.max(...salesByDay.map(d => d.total), 1);
+
+    // Top 5 products
+    const topProducts = useMemo(() => {
+      const productSales = {};
+      sales.forEach(sale => {
+        (sale.items || []).forEach(item => {
+          if (!productSales[item.id]) {
+            productSales[item.id] = { name: item.name, qty: 0, revenue: 0 };
+          }
+          productSales[item.id].qty += item.qty;
+          productSales[item.id].revenue += item.price * item.qty;
+        });
+      });
+      return Object.entries(productSales)
+        .map(([id, data]) => ({ id, ...data }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+    }, [sales]);
+
+    const maxQty = Math.max(...topProducts.map(p => p.qty), 1);
+
+    // Peak hours
+    const salesByHour = useMemo(() => {
+      const hours = Array(24).fill(0);
+      sales.forEach(sale => {
+        const saleDate = sale.date?.toDate ? sale.date.toDate() : new Date(sale.date);
+        const hour = saleDate.getHours();
+        hours[hour] += sale.total || 0;
+      });
+      return hours;
+    }, [sales]);
+
+    const maxHourSale = Math.max(...salesByHour, 1);
+
+    // Stock depletion prediction
+    const stockPredictions = useMemo(() => {
+      const days30Ago = new Date();
+      days30Ago.setDate(days30Ago.getDate() - 30);
+
+      const predictions = [];
+
+      products.forEach(product => {
+        if (product.isComposite) return; // Skip composite products
+
+        // Count how many were sold in last 30 days
+        let soldQty = 0;
+        sales.forEach(sale => {
+          const saleDate = sale.date?.toDate ? sale.date.toDate() : new Date(sale.date);
+          if (saleDate >= days30Ago) {
+            (sale.items || []).forEach(item => {
+              if (item.id === product.id) soldQty += item.qty;
+            });
+          }
+        });
+
+        const dailyRate = soldQty / 30;
+        const currentStock = product.stock || 0;
+        const daysUntilEmpty = dailyRate > 0 ? Math.floor(currentStock / dailyRate) : Infinity;
+
+        if (daysUntilEmpty < 30 && currentStock > 0) {
+          predictions.push({
+            name: product.name,
+            stock: currentStock,
+            dailyRate: dailyRate.toFixed(1),
+            daysLeft: daysUntilEmpty
+          });
+        }
+      });
+
+      return predictions.sort((a, b) => a.daysLeft - b.daysLeft).slice(0, 5);
+    }, [products, sales]);
+
+    // Account Tracking (Cash vs Mobile Money)
+    const accountStats = useMemo(() => {
+      const days = period === '7days' ? 7 : period === '30days' ? 30 : 90;
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - days);
+
+      let cashTotal = 0;
+      let mobileMoneyTotal = 0;
+
+      sales.forEach(sale => {
+        const saleDate = sale.date?.toDate ? sale.date.toDate() : new Date(sale.date);
+        if (saleDate >= startDate) {
+          if (sale.paymentMethod === 'mobile_money') {
+            mobileMoneyTotal += sale.total || 0;
+          } else {
+            cashTotal += sale.total || 0;
+          }
+        }
+      });
+
+      return { cashTotal, mobileMoneyTotal };
+    }, [sales, period]);
+
+    return (
+      <div className="space-y-5">
+        {/* Period Selector */}
+        <div className="flex gap-2">
+          {[
+            { key: '7days', label: '7 jours' },
+            { key: '30days', label: '30 jours' },
+            { key: '90days', label: '90 jours' }
+          ].map(p => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${period === p.key
+                ? 'bg-indigo-600 text-white'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Account Tracking Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-emerald-500 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-500 font-medium mb-1">Caisse Espèces</p>
+              <h3 className="text-2xl font-bold text-slate-800">{formatMoney(accountStats.cashTotal)}</h3>
+            </div>
+            <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600">
+              <DollarSign size={24} />
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-blue-500 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-500 font-medium mb-1">Compte Mobile Money</p>
+              <h3 className="text-2xl font-bold text-slate-800">{formatMoney(accountStats.mobileMoneyTotal)}</h3>
+            </div>
+            <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+              <Phone size={24} />
+            </div>
+          </div>
+        </div>
+
+        {/* Sales Chart */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <TrendingUp size={18} className="text-indigo-600" />
+            Évolution des ventes
+          </h3>
+          <div className="h-48 flex items-end gap-1">
+            {salesByDay.slice(-14).map((day, i) => (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                <div
+                  className="w-full bg-indigo-500 rounded-t hover:bg-indigo-600 transition-colors cursor-pointer group relative"
+                  style={{ height: `${(day.total / maxSale) * 100}%`, minHeight: day.total > 0 ? '4px' : '0' }}
+                >
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">
+                    {formatMoney(day.total)}
+                  </div>
+                </div>
+                <span className="text-[9px] text-slate-400 truncate w-full text-center">{day.label.split(' ')[0]}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between text-sm">
+            <span className="text-slate-500">Total période</span>
+            <span className="font-bold text-indigo-600">{formatMoney(salesByDay.reduce((s, d) => s + d.total, 0))}</span>
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-4">
+          {/* Top Products */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <Package size={18} className="text-emerald-600" />
+              Top 5 Produits
+            </h3>
+            {topProducts.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6">Aucune vente enregistrée</p>
+            ) : (
+              <div className="space-y-3">
+                {topProducts.map((product, i) => (
+                  <div key={product.id} className="flex items-center gap-3">
+                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                      {i + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-medium text-slate-700 truncate">{product.name}</span>
+                        <span className="text-xs text-slate-500">{product.qty} vendus</span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full"
+                          style={{ width: `${(product.qty / maxQty) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Peak Hours */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <Clock size={18} className="text-blue-600" />
+              Heures de pointe
+            </h3>
+            <div className="grid grid-cols-12 gap-1">
+              {salesByHour.slice(6, 22).map((amount, i) => {
+                const hour = i + 6;
+                const intensity = amount / maxHourSale;
+                return (
+                  <div
+                    key={hour}
+                    className="aspect-square rounded flex items-center justify-center text-[9px] font-medium cursor-pointer group relative"
+                    style={{
+                      backgroundColor: intensity > 0
+                        ? `rgba(79, 70, 229, ${0.2 + intensity * 0.8})`
+                        : '#f1f5f9',
+                      color: intensity > 0.5 ? 'white' : '#64748b'
+                    }}
+                  >
+                    {hour}h
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">
+                      {formatMoney(amount)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex justify-between text-xs text-slate-400">
+              <span>Moins actif</span>
+              <div className="flex gap-1">
+                {[0.2, 0.4, 0.6, 0.8, 1].map(i => (
+                  <div key={i} className="w-4 h-2 rounded" style={{ backgroundColor: `rgba(79, 70, 229, ${i})` }} />
+                ))}
+              </div>
+              <span>Plus actif</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Stock Predictions */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-600" />
+            Prévision de rupture
+          </h3>
+          {stockPredictions.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">Aucun produit à risque de rupture dans les 30 prochains jours 🎉</p>
+          ) : (
+            <div className="space-y-2">
+              {stockPredictions.map(pred => (
+                <div key={pred.name} className={`flex items-center justify-between p-3 rounded-lg ${pred.daysLeft <= 7 ? 'bg-red-50' : 'bg-amber-50'
+                  }`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${pred.daysLeft <= 7 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                      {pred.daysLeft}j
+                    </span>
+                    <div>
+                      <span className="font-medium text-slate-700">{pred.name}</span>
+                      <p className="text-xs text-slate-500">{pred.stock} en stock • ~{pred.dailyRate}/jour</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('inventory')}
+                    className="text-xs px-3 py-1 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                  >
+                    Réapprovisionner
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // --- Customer Selector Modal ---
   const CustomerSelectorModal = ({ onClose, onSelectCustomer }) => {
     const [newCustomerName, setNewCustomerName] = useState('');
@@ -1478,18 +1907,17 @@ export default function App() {
                 )}
               </div>
             )}
-
             <div className="flex justify-between items-center text-xl font-bold text-slate-800">
               <span>Total</span>
               <span>{formatMoney(cartTotal)}</span>
             </div>
             <Button
-              variant="success"
-              className="w-full py-3 text-lg"
-              onClick={processSale}
+              onClick={() => setIsPaymentModalOpen(true)}
               disabled={cart.length === 0}
+              className="w-full"
             >
-              Encaisser & Imprimer
+              <Check size={18} />
+              Valider
             </Button>
           </div>
         </Card>
@@ -1874,14 +2302,17 @@ export default function App() {
             filteredSales.map(sale => (
               <div key={sale.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center">
-                    <FileText size={18} className="text-indigo-600" />
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${sale.paymentMethod === 'mobile_money' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                    }`}>
+                    {sale.paymentMethod === 'mobile_money' ? <Phone size={18} /> : <DollarSign size={18} />}
                   </div>
                   <div>
                     <p className="font-semibold text-slate-800">
                       {(sale.date?.toDate ? sale.date.toDate() : new Date(sale.date)).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                     </p>
-                    <p className="text-xs text-slate-500">{sale.items?.length || 0} article{(sale.items?.length || 0) > 1 ? 's' : ''}</p>
+                    <p className="text-xs text-slate-500">
+                      {sale.customerName !== 'Anonyme' ? sale.customerName : 'Client Anonyme'} • {sale.items?.length || 0} art.
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -2198,9 +2629,18 @@ export default function App() {
                 customerPurchases.map(sale => (
                   <div key={sale.id} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-100 transition-colors">
                     <div>
-                      <p className="font-medium text-slate-800">
-                        {new Date(sale.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-slate-800">
+                          {new Date(sale.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </p>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${sale.paymentMethod === 'mobile_money'
+                          ? 'bg-blue-50 text-blue-600 border-blue-100'
+                          : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                          }`}>
+                          {sale.paymentMethod === 'mobile_money' ? <Phone size={10} /> : <DollarSign size={10} />}
+                          {sale.paymentMethod === 'mobile_money' ? 'Mobile Money' : 'Espèces'}
+                        </span>
+                      </div>
                       <p className="text-xs text-slate-500">{sale.items?.length || 0} article(s)</p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -3530,6 +3970,7 @@ export default function App() {
         <nav className="flex-1 p-4 space-y-2">
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
+            { id: 'analytics', icon: BarChart2, label: 'Analyses' },
             { id: 'pos', icon: ShoppingCart, label: 'Caisse (Scan)' },
             { id: 'inventory', icon: Package, label: 'Produits & QR' },
             { id: 'sales_history', icon: History, label: 'Historique' },
@@ -3560,6 +4001,12 @@ export default function App() {
             <LogOut size={16} />
             <span>Déconnexion</span>
           </button>
+
+          {/* Offline Indicator */}
+          <div className={`flex items-center justify-center gap-2 p-2 rounded-lg text-xs font-medium ${isOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+            {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+            <span>{isOnline ? 'En ligne' : 'Hors ligne'}</span>
+          </div>
         </div>
       </aside>
 
@@ -3587,10 +4034,11 @@ export default function App() {
               <LogOut size={18} />
             </button>
           </div>
-        </header>
+        </header >
 
         <div className="flex-1 overflow-auto p-3 lg:p-6 custom-scrollbar pb-20 lg:pb-6">
           {activeTab === 'dashboard' && <DashboardView />}
+          {activeTab === 'analytics' && <AnalyticsView />}
           {activeTab === 'pos' && <POSView />}
           {activeTab === 'inventory' && <InventoryView />}
           {activeTab === 'sales_history' && <HistoryView />}
@@ -3600,131 +4048,138 @@ export default function App() {
         </div>
 
         {/* Mobile Floating Cart Button - Only on POS View */}
-        {activeTab === 'pos' && cart.length > 0 && (
-          <button
-            onClick={() => setShowMobileCart(!showMobileCart)}
-            className="lg:hidden fixed bottom-20 right-4 w-16 h-16 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-95 transition-transform"
-          >
-            <div className="relative">
-              <ShoppingCart size={24} />
-              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
-                {cart.reduce((a, b) => a + b.qty, 0)}
-              </span>
-            </div>
-          </button>
-        )}
+        {
+          activeTab === 'pos' && cart.length > 0 && (
+            <button
+              onClick={() => setShowMobileCart(!showMobileCart)}
+              className="lg:hidden fixed bottom-20 right-4 w-16 h-16 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-95 transition-transform"
+            >
+              <div className="relative">
+                <ShoppingCart size={24} />
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                  {cart.reduce((a, b) => a + b.qty, 0)}
+                </span>
+              </div>
+            </button>
+          )
+        }
 
         {/* Mobile Cart Drawer */}
-        {showMobileCart && activeTab === 'pos' && (
-          <div className="lg:hidden fixed inset-0 bg-black/50 z-50" onClick={() => setShowMobileCart(false)}>
-            <div
-              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[75vh] flex flex-col shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-4 border-b flex justify-between items-center">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  <ShoppingCart size={18} /> Panier
-                  <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium ml-2">
-                    {cart.reduce((a, b) => a + b.qty, 0)}
-                  </span>
-                </h3>
-                <button onClick={() => setShowMobileCart(false)} className="p-1.5 text-slate-400 hover:text-slate-600">
-                  <X size={20} />
-                </button>
-              </div>
+        {
+          showMobileCart && activeTab === 'pos' && (
+            <div className="lg:hidden fixed inset-0 bg-black/50 z-50" onClick={() => setShowMobileCart(false)}>
+              <div
+                className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[75vh] flex flex-col shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-4 border-b flex justify-between items-center">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <ShoppingCart size={18} /> Panier
+                    <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium ml-2">
+                      {cart.reduce((a, b) => a + b.qty, 0)}
+                    </span>
+                  </h3>
+                  <button onClick={() => setShowMobileCart(false)} className="p-1.5 text-slate-400 hover:text-slate-600">
+                    <X size={20} />
+                  </button>
+                </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {cart.map(item => (
-                  <div key={item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <div className="flex-1 overflow-hidden">
-                      <p className="font-medium text-sm text-slate-800 truncate">{item.name}</p>
-                      <p className="text-xs text-slate-500">{formatMoney(item.price)}</p>
-                    </div>
-                    <div className="flex items-center gap-3 ml-2">
-                      <button
-                        onClick={() => setCart(cart.map(c => c.id === item.id ? { ...c, qty: Math.max(0, c.qty - 1) } : c).filter(c => c.qty > 0))}
-                        className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm active:scale-95"
-                      >
-                        <Minus size={16} />
-                      </button>
-                      <span className="font-bold text-base w-6 text-center">{item.qty}</span>
-                      <button
-                        onClick={() => addToCart(item)}
-                        className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm active:scale-95"
-                      >
-                        <Plus size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-4 bg-slate-50 border-t space-y-3 rounded-b-3xl">
-                {/* Customer Selector Mobile */}
-                {customerManagementEnabled && (
-                  <div>
-                    {selectedCustomer ? (
-                      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-indigo-200">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                            <User size={16} className="text-indigo-600" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-sm text-slate-800">{selectedCustomer.name}</p>
-                            <p className="text-xs text-slate-500">{selectedCustomer.totalPurchases || 0} achats</p>
-                          </div>
-                        </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {cart.map(item => (
+                    <div key={item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <div className="flex-1 overflow-hidden">
+                        <p className="font-medium text-sm text-slate-800 truncate">{item.name}</p>
+                        <p className="text-xs text-slate-500">{formatMoney(item.price)}</p>
+                      </div>
+                      <div className="flex items-center gap-3 ml-2">
                         <button
-                          onClick={() => setSelectedCustomer(null)}
-                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                          onClick={() => setCart(cart.map(c => c.id === item.id ? { ...c, qty: Math.max(0, c.qty - 1) } : c).filter(c => c.qty > 0))}
+                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm active:scale-95"
                         >
-                          <X size={16} />
+                          <Minus size={16} />
+                        </button>
+                        <span className="font-bold text-base w-6 text-center">{item.qty}</span>
+                        <button
+                          onClick={() => addToCart(item)}
+                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm active:scale-95"
+                        >
+                          <Plus size={16} />
                         </button>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => setShowCustomerModal(true)}
-                        className="w-full p-3 border-2 border-dashed border-slate-300 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 text-slate-500 hover:text-indigo-600"
-                      >
-                        <Users size={18} />
-                        <span className="font-medium text-sm">Ajouter un client</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center text-xl font-bold text-slate-800">
-                  <span>Total</span>
-                  <span className="text-indigo-600">{formatMoney(cart.reduce((sum, item) => sum + (item.price * item.qty), 0))}</span>
+                    </div>
+                  ))}
                 </div>
-                <Button
-                  variant="success"
-                  className="w-full py-4 text-lg"
-                  onClick={() => {
-                    processSale();
-                    setShowMobileCart(false);
-                  }}
-                >
-                  <Save size={20} /> Encaisser & Imprimer
-                </Button>
+
+                <div className="p-4 bg-slate-50 border-t space-y-3 rounded-b-3xl">
+                  {/* Customer Selector Mobile */}
+                  {customerManagementEnabled && (
+                    <div>
+                      {selectedCustomer ? (
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-indigo-200">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                              <User size={16} className="text-indigo-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm text-slate-800">{selectedCustomer.name}</p>
+                              <p className="text-xs text-slate-500">{selectedCustomer.totalPurchases || 0} achats</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setSelectedCustomer(null)}
+                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowCustomerModal(true)}
+                          className="w-full p-3 border-2 border-dashed border-slate-300 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 text-slate-500 hover:text-indigo-600"
+                        >
+                          <Users size={18} />
+                          <span className="font-medium text-sm">Ajouter un client</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center text-xl font-bold text-slate-800">
+                    <span>Total</span>
+                    <span className="text-indigo-600">{formatMoney(cart.reduce((sum, item) => sum + (item.price * item.qty), 0))}</span>
+                  </div>
+                  <Button
+                    variant="success"
+                    className="w-full py-4 text-lg"
+                    onClick={() => {
+                      setIsPaymentModalOpen(true);
+                      setShowMobileCart(false);
+                    }}
+                  >
+                    <Save size={20} /> Encaisser & Imprimer
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )
+        }
 
-        {notification && (
-          <div className={`fixed bottom-24 lg:bottom-6 right-4 lg:right-6 px-4 lg:px-6 py-2 lg:py-3 rounded-lg shadow-lg text-white font-medium animate-bounce-in z-50 text-sm lg:text-base ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-600'
-            }`}>
-            {notification.message}
-          </div>
-        )}
-      </main>
+        {
+          notification && (
+            <div className={`fixed bottom-24 lg:bottom-6 right-4 lg:right-6 px-4 lg:px-6 py-2 lg:py-3 rounded-lg shadow-lg text-white font-medium animate-bounce-in z-50 text-sm lg:text-base ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-600'
+              }`}>
+              {notification.message}
+            </div>
+          )
+        }
+      </main >
 
       {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 pb-safe">
-        <div className={`grid px-1 py-2 ${customerManagementEnabled ? 'grid-cols-7' : 'grid-cols-6'}`}>
+      < nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 pb-safe" >
+        <div className={`grid px-1 py-2 ${customerManagementEnabled ? 'grid-cols-8' : 'grid-cols-7'}`}>
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Accueil' },
+            { id: 'analytics', icon: BarChart2, label: 'Stats' },
             { id: 'pos', icon: ShoppingCart, label: 'Vente' },
             { id: 'inventory', icon: Package, label: 'Stock' },
             { id: 'sales_history', icon: History, label: 'Ventes' },
@@ -3748,35 +4203,56 @@ export default function App() {
             </button>
           ))}
         </div>
-      </nav>
+      </nav >
 
       {/* Modals */}
-      {isModalOpen && (
-        <ProductFormModal
-          editingProduct={editingProduct}
-          onClose={() => setIsModalOpen(false)}
-          onSave={(data) => {
-            if (editingProduct) updateProduct({ ...editingProduct, ...data });
-            else addProduct(data);
-          }}
-          ingredients={ingredients}
-        />
-      )}
+      {
+        isModalOpen && (
+          <ProductFormModal
+            editingProduct={editingProduct}
+            onClose={() => setIsModalOpen(false)}
+            onSave={(data) => {
+              if (editingProduct) updateProduct({ ...editingProduct, ...data });
+              else addProduct(data);
+            }}
+            ingredients={ingredients}
+          />
+        )
+      }
 
-      {isScannerOpen && (
-        <ScannerModal onClose={() => setIsScannerOpen(false)} onScan={handleScan} />
-      )}
+      {
+        isScannerOpen && (
+          <ScannerModal onClose={() => setIsScannerOpen(false)} onScan={handleScan} />
+        )
+      }
 
-      {showCustomerModal && (
-        <CustomerSelectorModal
-          onClose={() => setShowCustomerModal(false)}
-          onSelectCustomer={(customer) => setSelectedCustomer(customer)}
-        />
-      )}
+      {
+        showCustomerModal && (
+          <CustomerSelectorModal
+            onClose={() => setShowCustomerModal(false)}
+            onSelectCustomer={(customer) => setSelectedCustomer(customer)}
+          />
+        )
+      }
 
-      {viewingReceipt && (
-        <Receipt sale={viewingReceipt} onClose={() => setViewingReceipt(null)} />
-      )}
+      {
+        viewingReceipt && (
+          <Receipt sale={viewingReceipt} onClose={() => setViewingReceipt(null)} />
+        )
+      }
+
+      {
+        isPaymentModalOpen && (
+          <PaymentModal
+            total={cart.reduce((sum, item) => sum + (item.price * item.qty), 0)}
+            onClose={() => setIsPaymentModalOpen(false)}
+            onConfirm={(paymentDetails) => {
+              setIsPaymentModalOpen(false);
+              processSale(paymentDetails);
+            }}
+          />
+        )
+      }
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -3792,6 +4268,6 @@ export default function App() {
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
       `}</style>
-    </div>
+    </div >
   );
 }
