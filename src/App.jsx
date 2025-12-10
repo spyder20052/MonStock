@@ -340,6 +340,9 @@ export default function App() {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [customerManagementEnabled, setCustomerManagementEnabled] = useState(false);
 
+  // Ingredients States
+  const [ingredients, setIngredients] = useState([]);
+
   // --- Authentification & Initialisation ---
 
   useEffect(() => {
@@ -384,10 +387,18 @@ export default function App() {
       setCustomers(items);
     }, (error) => console.error("Erreur clients:", error));
 
+    // Ingredients - User-scoped
+    const qIngredients = query(collection(db, 'users', user.uid, 'ingredients'));
+    const unsubIngredients = onSnapshot(qIngredients, (snapshot) => {
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setIngredients(items);
+    }, (error) => console.error("Erreur ingrédients:", error));
+
     return () => {
       unsubProducts();
       unsubSales();
       unsubCustomers();
+      unsubIngredients();
     };
   }, [user]);
 
@@ -506,7 +517,8 @@ export default function App() {
     const product = products.find(p => p.id === decodedText);
 
     if (product) {
-      if (product.stock <= 0) {
+      const stock = getProductStock(product);
+      if (stock <= 0) {
         showNotification(`Stock épuisé pour ${product.name}`, "error");
         return;
       }
@@ -612,19 +624,194 @@ export default function App() {
     }
   };
 
-  const addToCart = (product) => {
-    const existingItem = cart.find(item => item.id === product.id);
-    const currentQtyInCart = existingItem ? existingItem.qty : 0;
+  // --- Ingrédients CRUD ---
 
-    if (currentQtyInCart + 1 > product.stock) {
+  const addIngredient = async (data) => {
+    if (!user) return;
+    const ingredientData = {
+      name: data.name,
+      trackingType: data.trackingType, // "quantity" ou "usage"
+      createdAt: serverTimestamp(),
+    };
+
+    if (data.trackingType === 'quantity') {
+      ingredientData.stock = Number(data.stock) || 0;
+      ingredientData.minStock = Number(data.minStock) || 5;
+    } else {
+      // trackingType === 'usage'
+      ingredientData.fullUnits = Number(data.fullUnits) || 0;
+      ingredientData.currentUnitUsages = Number(data.usagesPerUnit) || 0; // Commence plein
+      ingredientData.usagesPerUnit = Number(data.usagesPerUnit) || 1;
+      ingredientData.minFullUnits = Number(data.minFullUnits) || 2;
+    }
+
+    await addDoc(collection(db, 'users', user.uid, 'ingredients'), ingredientData);
+    showNotification(`Ingrédient "${data.name}" ajouté`);
+  };
+
+  const updateIngredient = async (id, data) => {
+    if (!user) return;
+    await updateDoc(doc(db, 'users', user.uid, 'ingredients', id), data);
+    showNotification("Ingrédient mis à jour");
+  };
+
+  const deleteIngredient = async (id) => {
+    if (!user) return;
+    await deleteDoc(doc(db, 'users', user.uid, 'ingredients', id));
+    showNotification("Ingrédient supprimé", "error");
+  };
+
+  // Helper: Calcul du stock disponible pour un ingrédient
+  const getIngredientAvailableStock = (ingredient) => {
+    if (ingredient.trackingType === 'quantity') {
+      return ingredient.stock || 0;
+    } else {
+      // Pour usage: bouteilles pleines * usages/bouteille + usages restants sur bouteille en cours
+      const fullUnitsTotal = (ingredient.fullUnits || 0) * (ingredient.usagesPerUnit || 1);
+      const currentUsages = ingredient.currentUnitUsages || 0;
+      return fullUnitsTotal + currentUsages;
+    }
+  };
+
+  // Helper: Vérifie si un ingrédient est bas
+  const isIngredientLow = (ingredient) => {
+    if (ingredient.trackingType === 'quantity') {
+      return (ingredient.stock || 0) < (ingredient.minStock || 5);
+    } else {
+      return (ingredient.fullUnits || 0) < (ingredient.minFullUnits || 2);
+    }
+  };
+
+  // Helper: Calculate product stock (dynamic for composite products)
+  const getProductStock = (product) => {
+    if (!product.isComposite) {
+      return product.stock || 0;
+    }
+    // For composite products, calculate based on ingredients
+    if (!product.recipe || product.recipe.length === 0) return 0;
+
+    let minStock = Infinity;
+    for (const item of product.recipe) {
+      const ingredient = ingredients.find(i => i.id === item.ingredientId);
+      if (!ingredient) return 0;
+
+      const available = getIngredientAvailableStock(ingredient);
+      const possibleProducts = Math.floor(available / item.quantityPerProduct);
+      minStock = Math.min(minStock, possibleProducts);
+    }
+    return minStock === Infinity ? 0 : minStock;
+  };
+
+  // Helper: Calculate total ingredient usage from cart (for all composite products)
+  const getCartIngredientUsage = () => {
+    const usage = {}; // ingredientId -> total quantity used
+
+    for (const cartItem of cart) {
+      const product = products.find(p => p.id === cartItem.id);
+      if (!product?.isComposite || !product.recipe) continue;
+
+      for (const recipeItem of product.recipe) {
+        const totalUsed = recipeItem.quantityPerProduct * cartItem.qty;
+        usage[recipeItem.ingredientId] = (usage[recipeItem.ingredientId] || 0) + totalUsed;
+      }
+    }
+    return usage;
+  };
+
+  // Helper: Get available product stock considering cart reservations
+  const getAvailableProductStock = (product) => {
+    if (!product.isComposite) {
+      // For simple products, subtract cart quantity
+      const cartItem = cart.find(item => item.id === product.id);
+      const qtyInCart = cartItem ? cartItem.qty : 0;
+      return (product.stock || 0) - qtyInCart;
+    }
+
+    // For composite products, consider ingredient usage from entire cart
+    if (!product.recipe || product.recipe.length === 0) return 0;
+
+    const cartUsage = getCartIngredientUsage();
+
+    let minStock = Infinity;
+    for (const recipeItem of product.recipe) {
+      const ingredient = ingredients.find(i => i.id === recipeItem.ingredientId);
+      if (!ingredient) return 0;
+
+      const totalAvailable = getIngredientAvailableStock(ingredient);
+      const usedByCart = cartUsage[recipeItem.ingredientId] || 0;
+      const remaining = totalAvailable - usedByCart;
+      const possibleProducts = Math.floor(remaining / recipeItem.quantityPerProduct);
+      minStock = Math.min(minStock, possibleProducts);
+    }
+    return minStock === Infinity ? 0 : Math.max(0, minStock);
+  };
+
+  const addToCart = (product) => {
+    const availableStock = getAvailableProductStock(product);
+
+    if (availableStock <= 0) {
       showNotification("Stock insuffisant !", "error");
       return;
     }
 
+    const existingItem = cart.find(item => item.id === product.id);
     if (existingItem) {
       setCart(cart.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item));
     } else {
       setCart([...cart, { ...product, qty: 1 }]);
+    }
+  };
+
+  // Helper: Decrement ingredient stock for a composite product
+  const decrementIngredients = async (product, quantity) => {
+    if (!product.isComposite || !product.recipe) return;
+
+    for (const recipeItem of product.recipe) {
+      const ingredient = ingredients.find(i => i.id === recipeItem.ingredientId);
+      if (!ingredient) continue;
+
+      const totalUsage = recipeItem.quantityPerProduct * quantity;
+      const ingredientRef = doc(db, 'users', user.uid, 'ingredients', ingredient.id);
+
+      if (ingredient.trackingType === 'quantity') {
+        // Simple decrement
+        await updateDoc(ingredientRef, {
+          stock: ingredient.stock - totalUsage
+        });
+      } else {
+        // Usage tracking: decrement from currentUnitUsages first, then fullUnits
+        let remainingUsage = totalUsage;
+        let newCurrentUsages = ingredient.currentUnitUsages;
+        let newFullUnits = ingredient.fullUnits;
+
+        // Use up current unit first
+        if (newCurrentUsages >= remainingUsage) {
+          newCurrentUsages -= remainingUsage;
+          remainingUsage = 0;
+        } else {
+          remainingUsage -= newCurrentUsages;
+          newCurrentUsages = 0;
+        }
+
+        // If still need more, open new units
+        while (remainingUsage > 0 && newFullUnits > 0) {
+          newFullUnits -= 1;
+          newCurrentUsages = ingredient.usagesPerUnit;
+
+          if (newCurrentUsages >= remainingUsage) {
+            newCurrentUsages -= remainingUsage;
+            remainingUsage = 0;
+          } else {
+            remainingUsage -= newCurrentUsages;
+            newCurrentUsages = 0;
+          }
+        }
+
+        await updateDoc(ingredientRef, {
+          fullUnits: newFullUnits,
+          currentUnitUsages: newCurrentUsages
+        });
+      }
     }
   };
 
@@ -647,11 +834,17 @@ export default function App() {
       };
       const saleRef = await addDoc(collection(db, 'users', user.uid, 'sales'), saleData);
 
-      // 2. Mettre à jour les stocks
+      // 2. Mettre à jour les stocks (produits simples) ou décrémenter ingrédients (produits composés)
       for (const item of cart) {
-        const productRef = doc(db, 'users', user.uid, 'products', item.id);
         const currentProduct = products.find(p => p.id === item.id);
-        if (currentProduct) {
+        if (!currentProduct) continue;
+
+        if (currentProduct.isComposite) {
+          // Decrement ingredients for composite products
+          await decrementIngredients(currentProduct, item.qty);
+        } else {
+          // Normal stock update for simple products
+          const productRef = doc(db, 'users', user.uid, 'products', item.id);
           await updateDoc(productRef, { stock: currentProduct.stock - item.qty });
         }
       }
@@ -818,6 +1011,63 @@ export default function App() {
           </div>
         </div>
 
+        {/* Ingredient Alerts - Show affected products */}
+        {(() => {
+          const lowIngredients = ingredients.filter(i => isIngredientLow(i));
+          if (lowIngredients.length === 0) return null;
+
+          // Find products affected by low ingredients
+          const affectedProducts = products.filter(p => {
+            if (!p.isComposite || !p.recipe) return false;
+            return p.recipe.some(r => lowIngredients.some(i => i.id === r.ingredientId));
+          });
+
+          return (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle size={20} className="text-red-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-red-800 mb-2">Alerte ingrédients</h3>
+
+                  <div className="mb-3">
+                    <p className="text-sm text-red-700 mb-2">{lowIngredients.length} ingrédient{lowIngredients.length > 1 ? 's' : ''} à réapprovisionner :</p>
+                    <div className="flex flex-wrap gap-2">
+                      {lowIngredients.map(ing => (
+                        <span key={ing.id} className="px-2 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-medium">
+                          {ing.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {affectedProducts.length > 0 && (
+                    <div className="pt-3 border-t border-red-200">
+                      <p className="text-sm text-red-700 mb-2">Produits impactés :</p>
+                      <div className="flex flex-wrap gap-2">
+                        {affectedProducts.map(prod => (
+                          <span key={prod.id} className="px-2 py-1 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium flex items-center gap-1">
+                            <Package size={12} />
+                            {prod.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setActiveTab('ingredients')}
+                    className="mt-3 text-sm text-red-700 hover:text-red-800 font-medium flex items-center gap-1"
+                  >
+                    Voir les ingrédients →
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Sales History with Date Filter */}
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border-b border-slate-100 gap-3">
@@ -921,21 +1171,25 @@ export default function App() {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {products.slice(0, 5).map(product => (
-                <div key={product.id} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${product.stock <= product.minStock ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
-                    <span className="font-medium text-sm text-slate-700">{product.name}</span>
+              {products.slice(0, 5).map(product => {
+                const stock = getProductStock(product);
+                const isLow = product.isComposite ? stock <= 2 : stock <= product.minStock;
+                return (
+                  <div key={product.id} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${isLow ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+                      <span className="font-medium text-sm text-slate-700">{product.name}</span>
+                      {product.isComposite && <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-bold">Composé</span>}
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-semibold text-slate-800">{formatMoney(product.price)}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${isLow ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'}`}>
+                        {stock} en stock
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-semibold text-slate-800">{formatMoney(product.price)}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${product.stock <= product.minStock ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                      {product.stock} en stock
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1097,41 +1351,62 @@ export default function App() {
                 <p className="text-sm">Aucun produit trouvé</p>
               </div>
             ) : (
-              filteredProducts.map(product => (
-                <button
-                  key={product.id}
-                  onClick={() => addToCart(product)}
-                  disabled={product.stock <= 0}
-                  className={`relative flex flex-col p-4 rounded-xl border-2 text-left transition-all group ${product.stock <= 0
-                    ? 'bg-slate-50 opacity-50 cursor-not-allowed border-slate-200'
-                    : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-lg active:scale-95'
-                    }`}
-                >
-                  {/* Add to cart indicator */}
-                  <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${product.stock <= 0
-                    ? 'bg-slate-200'
-                    : 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white'
-                    }`}>
-                    <Plus size={14} />
-                  </div>
+              filteredProducts.map(product => {
+                const availableStock = getAvailableProductStock(product);
+                const cartItem = cart.find(item => item.id === product.id);
+                const qtyInCart = cartItem ? cartItem.qty : 0;
+                const isLowStock = product.isComposite ? availableStock <= 2 : availableStock <= product.minStock;
 
-                  {/* Product name */}
-                  <h4 className="font-semibold text-slate-800 text-sm line-clamp-2 mb-3 pr-6">{product.name}</h4>
+                return (
+                  <button
+                    key={product.id}
+                    onClick={() => addToCart(product)}
+                    disabled={availableStock <= 0}
+                    className={`relative flex flex-col p-4 rounded-xl border-2 text-left transition-all group ${availableStock <= 0
+                      ? 'bg-slate-50 opacity-50 cursor-not-allowed border-slate-200'
+                      : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-lg active:scale-95'
+                      }`}
+                  >
+                    {/* Composite badge */}
+                    {product.isComposite && (
+                      <span className="absolute top-2 left-2 text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-bold">
+                        Composé
+                      </span>
+                    )}
 
-                  {/* Price and stock */}
-                  <div className="flex items-end justify-between w-full mt-auto">
-                    <span className="text-lg font-bold text-slate-800">{formatMoney(product.price)}</span>
-                    <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${product.stock <= 0
-                      ? 'bg-slate-100 text-slate-500'
-                      : product.stock <= product.minStock
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-emerald-100 text-emerald-700'
+                    {/* Cart quantity badge */}
+                    {qtyInCart > 0 && (
+                      <span className="absolute top-2 right-8 text-[9px] px-1.5 py-0.5 rounded bg-indigo-500 text-white font-bold">
+                        {qtyInCart} au panier
+                      </span>
+                    )}
+
+                    {/* Add to cart indicator */}
+                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${availableStock <= 0
+                      ? 'bg-slate-200'
+                      : 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white'
                       }`}>
-                      {product.stock <= 0 ? 'Rupture' : product.stock}
-                    </span>
-                  </div>
-                </button>
-              ))
+                      <Plus size={14} />
+                    </div>
+
+                    {/* Product name */}
+                    <h4 className={`font-semibold text-slate-800 text-sm line-clamp-2 mb-3 ${product.isComposite ? 'mt-4' : ''} pr-6`}>{product.name}</h4>
+
+                    {/* Price and stock */}
+                    <div className="flex items-end justify-between w-full mt-auto">
+                      <span className="text-lg font-bold text-slate-800">{formatMoney(product.price)}</span>
+                      <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${availableStock <= 0
+                        ? 'bg-slate-100 text-slate-500'
+                        : isLowStock
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                        {availableStock <= 0 ? 'Rupture' : `${availableStock} dispo`}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -1366,64 +1641,84 @@ export default function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProducts.map(product => (
-                <tr key={product.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${product.stock <= product.minStock ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
-                      <div>
-                        <div className="font-medium text-slate-800">{product.name}</div>
-                        <div className="text-xs text-slate-400">Coût: {formatMoney(product.cost)}</div>
+              {filteredProducts.map(product => {
+                const stock = getProductStock(product);
+                const isLow = product.isComposite ? stock <= 2 : stock <= product.minStock;
+
+                return (
+                  <tr key={product.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${isLow ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-800">{product.name}</span>
+                            {product.isComposite && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-bold">Composé</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-400">Coût: {formatMoney(product.cost)}</div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="font-semibold text-slate-800">{formatMoney(product.price)}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${product.stock <= product.minStock
-                      ? 'bg-red-100 text-red-600'
-                      : 'bg-emerald-100 text-emerald-600'
-                      }`}>
-                      {product.stock} / min {product.minStock}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-center gap-2">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${product.id}`}
-                        alt="QR"
-                        className="w-10 h-10 border rounded"
-                      />
-                      <button
-                        onClick={() => downloadQR(product)}
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                        title="Télécharger"
-                      >
-                        <Download size={16} />
-                      </button>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                        title="Éditer"
-                      >
-                        <Edit3 size={16} />
-                      </button>
-                      <button
-                        onClick={() => deleteProduct(product.id)}
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Supprimer"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="font-semibold text-slate-800">{formatMoney(product.price)}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      {product.isComposite ? (
+                        <div>
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${stock <= 0 ? 'bg-red-100 text-red-600' : isLow ? 'bg-amber-100 text-amber-600' : 'bg-purple-100 text-purple-600'
+                            }`}>
+                            {stock} disponible{stock !== 1 ? 's' : ''}
+                          </span>
+                          <div className="text-xs text-slate-400 mt-1">{product.recipe?.length || 0} ingrédient(s)</div>
+                        </div>
+                      ) : (
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${isLow
+                          ? 'bg-red-100 text-red-600'
+                          : 'bg-emerald-100 text-emerald-600'
+                          }`}>
+                          {stock} / min {product.minStock}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${product.id}`}
+                          alt="QR"
+                          className="w-10 h-10 border rounded"
+                        />
+                        <button
+                          onClick={() => downloadQR(product)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="Télécharger"
+                        >
+                          <Download size={16} />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="Éditer"
+                        >
+                          <Edit3 size={16} />
+                        </button>
+                        <button
+                          onClick={() => deleteProduct(product.id)}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
@@ -2079,6 +2374,716 @@ export default function App() {
     );
   };
 
+  // --- ProductFormModal Component ---
+  const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
+    const [formData, setFormData] = useState({
+      name: editingProduct?.name || '',
+      cost: editingProduct?.cost || 0,
+      price: editingProduct?.price || 0,
+      stock: editingProduct?.stock || 0,
+      minStock: editingProduct?.minStock || 5,
+      isComposite: editingProduct?.isComposite || false,
+      recipe: editingProduct?.recipe || [],
+    });
+
+    const [selectedIngredient, setSelectedIngredient] = useState('');
+    const [ingredientQty, setIngredientQty] = useState(1);
+
+    const addRecipeItem = () => {
+      if (!selectedIngredient || ingredientQty <= 0) return;
+      const ingredient = ingredients.find(i => i.id === selectedIngredient);
+      if (!ingredient) return;
+
+      // Check if already in recipe
+      if (formData.recipe.some(r => r.ingredientId === selectedIngredient)) {
+        return;
+      }
+
+      setFormData({
+        ...formData,
+        recipe: [...formData.recipe, {
+          ingredientId: selectedIngredient,
+          ingredientName: ingredient.name,
+          quantityPerProduct: ingredientQty,
+        }]
+      });
+      setSelectedIngredient('');
+      setIngredientQty(1);
+    };
+
+    const removeRecipeItem = (ingredientId) => {
+      setFormData({
+        ...formData,
+        recipe: formData.recipe.filter(r => r.ingredientId !== ingredientId)
+      });
+    };
+
+    // Calculate available stock for composite products
+    const calculateCompositeStock = () => {
+      if (!formData.isComposite || formData.recipe.length === 0) return 0;
+
+      let minStock = Infinity;
+      for (const item of formData.recipe) {
+        const ingredient = ingredients.find(i => i.id === item.ingredientId);
+        if (!ingredient) return 0;
+
+        const available = getIngredientAvailableStock(ingredient);
+        const possibleProducts = Math.floor(available / item.quantityPerProduct);
+        minStock = Math.min(minStock, possibleProducts);
+      }
+      return minStock === Infinity ? 0 : minStock;
+    };
+
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      const dataToSave = {
+        name: formData.name,
+        cost: Number(formData.cost),
+        price: Number(formData.price),
+        isComposite: formData.isComposite,
+      };
+
+      if (formData.isComposite) {
+        dataToSave.recipe = formData.recipe;
+        dataToSave.stock = 0; // Will be calculated dynamically
+        dataToSave.minStock = 0;
+      } else {
+        dataToSave.stock = Number(formData.stock);
+        dataToSave.minStock = Number(formData.minStock);
+        dataToSave.recipe = [];
+      }
+
+      onSave(dataToSave);
+      onClose();
+    };
+
+    const compositeStock = calculateCompositeStock();
+
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-scale-in">
+          <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center sticky top-0">
+            <h3 className="font-bold text-lg">{editingProduct ? 'Modifier' : 'Nouveau Produit'}</h3>
+            <button onClick={onClose}><X size={20} className="text-slate-400 hover:text-slate-600" /></button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            {/* Nom */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nom du produit *</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="Ex: Bubble Tea Menthe"
+                required
+                autoFocus
+              />
+            </div>
+
+            {/* Prix */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Prix Achat</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.cost}
+                  onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Prix Vente *</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Toggle Produit Composé */}
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-semibold text-purple-800">Produit composé</h4>
+                  <p className="text-sm text-purple-600">Ce produit est fabriqué à partir d'ingrédients</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, isComposite: !formData.isComposite })}
+                  className={`relative w-14 h-7 rounded-full transition-colors ${formData.isComposite ? 'bg-purple-600' : 'bg-slate-300'}`}
+                >
+                  <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${formData.isComposite ? 'translate-x-7' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Stock fields for non-composite products */}
+            {!formData.isComposite && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Stock actuel</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.stock}
+                    onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Alerte minimum</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.minStock}
+                    onChange={(e) => setFormData({ ...formData, minStock: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Recipe Builder for composite products */}
+            {formData.isComposite && (
+              <div className="space-y-4">
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                  <h4 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                    <Package size={18} className="text-purple-600" />
+                    Recette (ingrédients requis)
+                  </h4>
+
+                  {/* Add ingredient row */}
+                  <div className="space-y-2 mb-3">
+                    <select
+                      value={selectedIngredient}
+                      onChange={(e) => setSelectedIngredient(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                    >
+                      <option value="">Sélectionner un ingrédient...</option>
+                      {ingredients
+                        .filter(i => !formData.recipe.some(r => r.ingredientId === i.id))
+                        .map(i => (
+                          <option key={i.id} value={i.id}>
+                            {i.name} ({i.trackingType === 'quantity' ? 'par quantité' : 'par utilisation'})
+                          </option>
+                        ))
+                      }
+                    </select>
+
+                    {selectedIngredient && (() => {
+                      const ing = ingredients.find(i => i.id === selectedIngredient);
+                      if (!ing) return null;
+                      return (
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <label className="block text-xs text-slate-500 mb-1">
+                              {ing.trackingType === 'quantity'
+                                ? 'Quantité utilisée par produit'
+                                : 'Doses utilisées par produit'}
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={ingredientQty}
+                              onChange={(e) => setIngredientQty(Number(e.target.value))}
+                              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                              placeholder={ing.trackingType === 'quantity' ? 'Ex: 2 unités' : 'Ex: 1 dose'}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={addRecipeItem}
+                            className="self-end px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1"
+                          >
+                            <Plus size={16} />
+                            Ajouter
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Recipe items list */}
+                  {formData.recipe.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-4">Ajoutez des ingrédients à la recette</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {formData.recipe.map(item => {
+                        const ingredient = ingredients.find(i => i.id === item.ingredientId);
+                        const available = ingredient ? getIngredientAvailableStock(ingredient) : 0;
+                        const possibleUnits = item.quantityPerProduct > 0 ? Math.floor(available / item.quantityPerProduct) : 0;
+                        const isLow = ingredient && isIngredientLow(ingredient);
+
+                        return (
+                          <div key={item.ingredientId} className={`bg-white rounded-lg p-3 border ${isLow ? 'border-red-200 bg-red-50/30' : 'border-slate-100'}`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${isLow ? 'bg-red-500' : 'bg-green-500'}`} />
+                                <div>
+                                  <span className="font-medium text-sm">{item.ingredientName}</span>
+                                  <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${ingredient?.trackingType === 'quantity'
+                                    ? 'bg-blue-100 text-blue-600'
+                                    : 'bg-purple-100 text-purple-600'
+                                    }`}>
+                                    {ingredient?.trackingType === 'quantity' ? 'quantité' : 'usage'}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeRecipeItem(item.ingredientId)}
+                                className="p-1 text-red-500 hover:bg-red-50 rounded"
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between text-xs">
+                              <span className="text-slate-500">
+                                {item.quantityPerProduct} {ingredient?.trackingType === 'quantity' ? 'unité(s)' : 'dose(s)'} / produit
+                              </span>
+                              <span className={`font-medium ${possibleUnits > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                → {possibleUnits} produit{possibleUnits !== 1 ? 's' : ''} possible{possibleUnits !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Calculated stock */}
+                  {formData.recipe.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-slate-200">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-600">Stock total disponible :</span>
+                        <span className={`font-bold text-lg ${compositeStock > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {compositeStock} produit{compositeStock !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Limité par l'ingrédient le plus bas
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={formData.isComposite && formData.recipe.length === 0}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                <Save size={18} />
+                Sauvegarder
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  // --- IngredientsView Component ---
+  const IngredientsView = () => {
+    const [showIngredientModal, setShowIngredientModal] = useState(false);
+    const [editingIngredient, setEditingIngredient] = useState(null);
+    const [ingredientForm, setIngredientForm] = useState({
+      name: '',
+      trackingType: 'quantity',
+      stock: 0,
+      minStock: 5,
+      fullUnits: 0,
+      currentUnitUsages: 0,
+      usagesPerUnit: 20,
+      minFullUnits: 2,
+    });
+
+    const resetForm = () => {
+      setIngredientForm({
+        name: '',
+        trackingType: 'quantity',
+        stock: 0,
+        minStock: 5,
+        fullUnits: 0,
+        currentUnitUsages: 0,
+        usagesPerUnit: 20,
+        minFullUnits: 2,
+      });
+      setEditingIngredient(null);
+    };
+
+    const openAddModal = () => {
+      resetForm();
+      setShowIngredientModal(true);
+    };
+
+    const openEditModal = (ingredient) => {
+      setEditingIngredient(ingredient);
+      setIngredientForm({
+        name: ingredient.name,
+        trackingType: ingredient.trackingType,
+        stock: ingredient.stock || 0,
+        minStock: ingredient.minStock || 5,
+        fullUnits: ingredient.fullUnits || 0,
+        currentUnitUsages: ingredient.currentUnitUsages || 0,
+        usagesPerUnit: ingredient.usagesPerUnit || 20,
+        minFullUnits: ingredient.minFullUnits || 2,
+      });
+      setShowIngredientModal(true);
+    };
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (editingIngredient) {
+        await updateIngredient(editingIngredient.id, ingredientForm);
+      } else {
+        await addIngredient(ingredientForm);
+      }
+      setShowIngredientModal(false);
+      resetForm();
+    };
+
+    const handleDelete = async (ingredient) => {
+      if (window.confirm(`Supprimer l'ingrédient "${ingredient.name}" ?`)) {
+        await deleteIngredient(ingredient.id);
+      }
+    };
+
+    // Stats
+    const totalIngredients = ingredients.length;
+    const lowStockIngredients = ingredients.filter(i => isIngredientLow(i));
+
+    return (
+      <div className="space-y-4 lg:space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-xl lg:text-2xl font-bold text-slate-800">Ingrédients</h1>
+            <p className="text-sm text-slate-500">{totalIngredients} ingrédient{totalIngredients > 1 ? 's' : ''}</p>
+          </div>
+          <Button onClick={openAddModal} className="flex items-center gap-2">
+            <Plus size={18} />
+            Nouvel ingrédient
+          </Button>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                <Package size={20} className="text-indigo-600" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Total</p>
+                <p className="text-lg font-bold text-slate-800">{totalIngredients}</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 ${lowStockIngredients.length > 0 ? 'bg-red-100' : 'bg-emerald-100'} rounded-lg flex items-center justify-center`}>
+                <AlertTriangle size={20} className={lowStockIngredients.length > 0 ? 'text-red-600' : 'text-emerald-600'} />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Stock bas</p>
+                <p className={`text-lg font-bold ${lowStockIngredients.length > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{lowStockIngredients.length}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Low Stock Alert */}
+        {lowStockIngredients.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="text-red-600 flex-shrink-0" size={20} />
+              <div>
+                <h3 className="font-semibold text-red-800">Ingrédients à réapprovisionner</h3>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {lowStockIngredients.map(ing => (
+                    <span key={ing.id} className="px-2 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-medium">
+                      {ing.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Ingredients List */}
+        <div className="grid gap-3 lg:gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {ingredients.length === 0 ? (
+            <div className="col-span-full bg-white rounded-xl border border-slate-200 p-8 text-center">
+              <Package size={48} className="mx-auto text-slate-300 mb-4" />
+              <h3 className="font-semibold text-slate-600 mb-2">Aucun ingrédient</h3>
+              <p className="text-sm text-slate-400 mb-4">Ajoutez vos premiers ingrédients pour créer des produits composés</p>
+              <Button onClick={openAddModal} className="inline-flex items-center gap-2">
+                <Plus size={18} />
+                Ajouter un ingrédient
+              </Button>
+            </div>
+          ) : (
+            ingredients.map(ingredient => {
+              const isLow = isIngredientLow(ingredient);
+              const availableStock = getIngredientAvailableStock(ingredient);
+
+              return (
+                <div
+                  key={ingredient.id}
+                  className={`bg-white rounded-xl border p-4 ${isLow ? 'border-red-300 bg-red-50/30' : 'border-slate-200'}`}
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h3 className="font-semibold text-slate-800">{ingredient.name}</h3>
+                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium mt-1 ${ingredient.trackingType === 'quantity'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-purple-100 text-purple-700'
+                        }`}>
+                        {ingredient.trackingType === 'quantity' ? 'Par quantité' : 'Par utilisation'}
+                      </span>
+                    </div>
+                    {isLow && (
+                      <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">
+                        Stock bas
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Stock Info */}
+                  {ingredient.trackingType === 'quantity' ? (
+                    <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">Stock</span>
+                        <span className={`font-bold ${isLow ? 'text-red-600' : 'text-slate-800'}`}>
+                          {ingredient.stock} unités
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-xs text-slate-400">Minimum</span>
+                        <span className="text-xs text-slate-500">{ingredient.minStock} unités</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">Unités pleines</span>
+                        <span className={`font-bold ${isLow ? 'text-red-600' : 'text-slate-800'}`}>
+                          {ingredient.fullUnits}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-xs text-slate-400">Utilisations restantes (en cours)</span>
+                        <span className="text-xs text-purple-600 font-medium">
+                          {ingredient.currentUnitUsages}/{ingredient.usagesPerUnit}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-xs text-slate-400">Total disponible</span>
+                        <span className="text-xs text-slate-500">{availableStock} utilisations</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => openEditModal(ingredient)}
+                      className="flex-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                    >
+                      <Edit3 size={16} />
+                      Modifier
+                    </button>
+                    <button
+                      onClick={() => handleDelete(ingredient)}
+                      className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Add/Edit Modal */}
+        {showIngredientModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              <div className="p-4 border-b flex justify-between items-center bg-indigo-50 sticky top-0">
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <Package size={20} className="text-indigo-600" />
+                  {editingIngredient ? 'Modifier' : 'Nouvel'} ingrédient
+                </h3>
+                <button onClick={() => { setShowIngredientModal(false); resetForm(); }} className="p-1 hover:bg-indigo-100 rounded-lg">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nom *</label>
+                  <input
+                    type="text"
+                    value={ingredientForm.name}
+                    onChange={(e) => setIngredientForm({ ...ingredientForm, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    placeholder="Ex: Sirop de menthe"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Type de suivi</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIngredientForm({ ...ingredientForm, trackingType: 'quantity' })}
+                      className={`p-3 rounded-lg border-2 transition-all text-left ${ingredientForm.trackingType === 'quantity'
+                        ? 'border-indigo-500 bg-indigo-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                    >
+                      <p className="font-semibold text-sm">Par quantité</p>
+                      <p className="text-xs text-slate-500 mt-1">Gobelets, pipettes...</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIngredientForm({ ...ingredientForm, trackingType: 'usage' })}
+                      className={`p-3 rounded-lg border-2 transition-all text-left ${ingredientForm.trackingType === 'usage'
+                        ? 'border-purple-500 bg-purple-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                    >
+                      <p className="font-semibold text-sm">Par utilisation</p>
+                      <p className="text-xs text-slate-500 mt-1">Bouteilles, pots...</p>
+                    </button>
+                  </div>
+                </div>
+
+                {ingredientForm.trackingType === 'quantity' ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Stock actuel</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={ingredientForm.stock}
+                          onChange={(e) => setIngredientForm({ ...ingredientForm, stock: Number(e.target.value) })}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Stock minimum</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={ingredientForm.minStock}
+                          onChange={(e) => setIngredientForm({ ...ingredientForm, minStock: Number(e.target.value) })}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Unités pleines</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={ingredientForm.fullUnits}
+                          onChange={(e) => setIngredientForm({ ...ingredientForm, fullUnits: Number(e.target.value) })}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500"
+                          placeholder="Ex: 5 bouteilles"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Utilisations/unité</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={ingredientForm.usagesPerUnit}
+                          onChange={(e) => setIngredientForm({ ...ingredientForm, usagesPerUnit: Number(e.target.value) })}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500"
+                          placeholder="Ex: 20 doses/bouteille"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Utilisations restantes</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={ingredientForm.currentUnitUsages}
+                          onChange={(e) => setIngredientForm({ ...ingredientForm, currentUnitUsages: Number(e.target.value) })}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500"
+                          placeholder="Sur l'unité en cours"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Alerte si moins de</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={ingredientForm.minFullUnits}
+                          onChange={(e) => setIngredientForm({ ...ingredientForm, minFullUnits: Number(e.target.value) })}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500"
+                          placeholder="Unités pleines"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => { setShowIngredientModal(false); resetForm(); }}
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Save size={18} />
+                    {editingIngredient ? 'Modifier' : 'Ajouter'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const ProfileView = () => {
     const [profileData, setProfileData] = useState({
       displayName: user?.displayName || '',
@@ -2529,6 +3534,7 @@ export default function App() {
             { id: 'inventory', icon: Package, label: 'Produits & QR' },
             { id: 'sales_history', icon: History, label: 'Historique' },
             ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
+            { id: 'ingredients', icon: Package, label: 'Ingrédients' },
             { id: 'profile', icon: User, label: 'Mon Profil' },
           ].map(item => (
             <button
@@ -2566,7 +3572,7 @@ export default function App() {
               <Package size={16} className="text-white" />
             </div>
             <h2 className="text-base lg:text-xl font-bold text-slate-800 truncate">
-              {activeTab === 'pos' ? 'Caisse' : activeTab === 'inventory' ? 'Stock' : activeTab === 'sales_history' ? 'Historique' : activeTab === 'customers' ? 'Clients' : activeTab === 'profile' ? 'Mon Profil' : 'Tableau de bord'}
+              {activeTab === 'pos' ? 'Caisse' : activeTab === 'inventory' ? 'Stock' : activeTab === 'sales_history' ? 'Historique' : activeTab === 'customers' ? 'Clients' : activeTab === 'ingredients' ? 'Ingrédients' : activeTab === 'profile' ? 'Mon Profil' : 'Tableau de bord'}
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -2589,6 +3595,7 @@ export default function App() {
           {activeTab === 'inventory' && <InventoryView />}
           {activeTab === 'sales_history' && <HistoryView />}
           {activeTab === 'customers' && customerManagementEnabled && <CustomerView />}
+          {activeTab === 'ingredients' && <IngredientsView />}
           {activeTab === 'profile' && <ProfileView />}
         </div>
 
@@ -2715,13 +3722,14 @@ export default function App() {
 
       {/* Mobile Bottom Navigation */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 pb-safe">
-        <div className={`grid px-1 py-2 ${customerManagementEnabled ? 'grid-cols-6' : 'grid-cols-5'}`}>
+        <div className={`grid px-1 py-2 ${customerManagementEnabled ? 'grid-cols-7' : 'grid-cols-6'}`}>
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Accueil' },
             { id: 'pos', icon: ShoppingCart, label: 'Vente' },
             { id: 'inventory', icon: Package, label: 'Stock' },
             { id: 'sales_history', icon: History, label: 'Ventes' },
             ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
+            { id: 'ingredients', icon: Package, label: 'Ingréd.' },
             { id: 'profile', icon: User, label: 'Profil' },
           ].map(item => (
             <button
@@ -2744,35 +3752,15 @@ export default function App() {
 
       {/* Modals */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in">
-            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-lg">{editingProduct ? 'Modifier' : 'Nouveau Produit'}</h3>
-              <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-slate-400 hover:text-slate-600" /></button>
-            </div>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.target);
-              const data = Object.fromEntries(formData);
-              if (editingProduct) updateProduct({ ...editingProduct, ...data });
-              else addProduct(data);
-            }} className="p-6">
-              <Input name="name" label="Nom" defaultValue={editingProduct?.name} required autoFocus />
-              <div className="grid grid-cols-2 gap-4">
-                <Input name="cost" label="Prix Achat" type="number" min="0" defaultValue={editingProduct?.cost} required />
-                <Input name="price" label="Prix Vente" type="number" min="0" defaultValue={editingProduct?.price} required />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input name="stock" label="Stock" type="number" defaultValue={editingProduct?.stock} required />
-                <Input name="minStock" label="Alerte Min" type="number" defaultValue={editingProduct?.minStock || 5} required />
-              </div>
-              <div className="mt-6 flex gap-3">
-                <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} className="flex-1">Annuler</Button>
-                <Button type="submit" className="flex-1"><Save size={18} /> Sauvegarder</Button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <ProductFormModal
+          editingProduct={editingProduct}
+          onClose={() => setIsModalOpen(false)}
+          onSave={(data) => {
+            if (editingProduct) updateProduct({ ...editingProduct, ...data });
+            else addProduct(data);
+          }}
+          ingredients={ingredients}
+        />
       )}
 
       {isScannerOpen && (
