@@ -3,7 +3,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, History, Settings,
   Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign, BarChart2,
   Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3,
-  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users, Clock, Wifi, WifiOff, RefreshCw
+  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users, Clock, Wifi, WifiOff, RefreshCw, Menu
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
@@ -91,6 +91,7 @@ export default function App() {
   const [repaymentCustomer, setRepaymentCustomer] = useState(null); // Moved from CustomerView
   const [repaymentSale, setRepaymentSale] = useState(null); // For specific sale repayment
   const [returnChangeCustomer, setReturnChangeCustomer] = useState(null); // For change return
+  const [showMobileMenu, setShowMobileMenu] = useState(false); // Mobile overflow menu
 
   // Ingredients States
   const [ingredients, setIngredients] = useState([]);
@@ -948,35 +949,103 @@ export default function App() {
       </main >
 
       {/* Mobile Bottom Navigation */}
-      < nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 pb-safe" >
-        <div className={`grid px-1 py-2 ${customerManagementEnabled ? 'grid-cols-8' : 'grid-cols-7'}`}>
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+        <div className="grid grid-cols-5 h-16">
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Accueil' },
-            { id: 'analytics', icon: BarChart2, label: 'Stats' },
-            { id: 'pos', icon: ShoppingCart, label: 'Vente' },
+            { id: 'pos', icon: ShoppingCart, label: 'Caisse' },
             { id: 'inventory', icon: Package, label: 'Stock' },
             { id: 'sales_history', icon: History, label: 'Ventes' },
-            ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
-            { id: 'ingredients', icon: Package, label: 'Ingréd.' },
-            { id: 'profile', icon: User, label: 'Profil' },
           ].map(item => (
             <button
               key={item.id}
               onClick={() => {
                 navigate(`/${item.id}`);
                 setShowMobileCart(false);
+                setShowMobileMenu(false);
               }}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg transition-all ${activeTab === item.id
+              className={`flex flex-col items-center justify-center gap-1 transition-all ${activeTab === item.id
                 ? 'text-indigo-600 bg-indigo-50'
-                : 'text-slate-400 hover:text-slate-600'
+                : 'text-slate-500 active:bg-slate-50'
                 }`}
             >
-              <item.icon size={customerManagementEnabled ? 20 : 22} strokeWidth={activeTab === item.id ? 2.5 : 1.5} />
-              <span className={`${customerManagementEnabled ? 'text-[9px]' : 'text-[10px]'} mt-1 ${activeTab === item.id ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
+              <item.icon size={22} strokeWidth={activeTab === item.id ? 2.5 : 2} />
+              <span className={`text-[10px] ${activeTab === item.id ? 'font-semibold' : 'font-medium'}`}>
+                {item.label}
+              </span>
             </button>
           ))}
+
+          {/* More Menu */}
+          <button
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+            className={`flex flex-col items-center justify-center gap-1 transition-all ${showMobileMenu || ['analytics', 'customers', 'ingredients', 'profile'].includes(activeTab)
+              ? 'text-indigo-600 bg-indigo-50'
+              : 'text-slate-500 active:bg-slate-50'
+              }`}
+          >
+            <Menu size={22} strokeWidth={showMobileMenu ? 2.5 : 2} />
+            <span className={`text-[10px] ${showMobileMenu ? 'font-semibold' : 'font-medium'}`}>
+              Plus
+            </span>
+          </button>
         </div>
-      </nav >
+      </nav>
+
+      {/* Mobile Overflow Menu */}
+      {showMobileMenu && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/40 z-40 backdrop-blur-sm"
+          onClick={() => setShowMobileMenu(false)}
+        >
+          <div
+            className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[60vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800">Menu</h3>
+              <button
+                onClick={() => setShowMobileMenu(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg active:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-3 space-y-1">
+              {[
+                { id: 'analytics', icon: BarChart2, label: 'Analyses', description: 'Statistiques et rapports' },
+                ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients', description: 'Gestion des clients' }] : []),
+                { id: 'ingredients', icon: Package, label: 'Ingrédients', description: 'Stock des ingrédients' },
+                { id: 'profile', icon: User, label: 'Mon Profil', description: 'Paramètres et données' },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    navigate(`/${item.id}`);
+                    setShowMobileMenu(false);
+                  }}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activeTab === item.id
+                    ? 'bg-indigo-50 text-indigo-700'
+                    : 'text-slate-700 active:bg-slate-50'
+                    }`}
+                >
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${activeTab === item.id
+                    ? 'bg-indigo-100'
+                    : 'bg-slate-100'
+                    }`}>
+                    <item.icon size={20} />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-semibold text-sm">{item.label}</p>
+                    <p className="text-xs text-slate-500">{item.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       {
