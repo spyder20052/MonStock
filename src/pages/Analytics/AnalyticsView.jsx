@@ -22,6 +22,25 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                 return saleDate.toISOString().split('T')[0] === dateStr;
             });
 
+            // Find peak hour for this day
+            const hours = {};
+            daySales.forEach(s => {
+                const saleDate = s.date?.toDate ? s.date.toDate() : new Date(s.date);
+                const hour = saleDate.getHours();
+                const amount = s.type === 'repayment' ? (s.total || 0) :
+                    s.isCredit ? (s.amountPaid || 0) : (s.total || 0);
+                hours[hour] = (hours[hour] || 0) + amount;
+            });
+
+            let peakHour = null;
+            let maxHourTotal = 0;
+            Object.entries(hours).forEach(([h, total]) => {
+                if (total > maxHourTotal) {
+                    maxHourTotal = total;
+                    peakHour = h;
+                }
+            });
+
             data.push({
                 date: dateStr,
                 label: date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
@@ -31,7 +50,8 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                     if (s.isCredit) return sum + (Number(s.amountPaid) || 0);
                     return sum + (Number(s.total) || 0);
                 }, 0),
-                count: daySales.length
+                count: daySales.length,
+                peakHour: peakHour
             });
         }
         return data;
@@ -250,9 +270,16 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                                 cursor={{ fill: '#f1f5f9' }}
                                 content={({ active, payload }) => {
                                     if (active && payload && payload.length) {
+                                        const data = payload[0].payload;
                                         return (
-                                            <div className="bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg font-semibold">
-                                                {formatMoney(payload[0].value)}
+                                            <div className="bg-slate-800 text-white text-xs px-2 py-1.5 rounded shadow-lg">
+                                                <div className="font-bold mb-0.5">{formatMoney(payload[0].value)}</div>
+                                                {data.peakHour && (
+                                                    <div className="text-slate-300 text-[10px] flex items-center gap-1">
+                                                        <Clock size={10} />
+                                                        Pointe: {data.peakHour}h
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     }
@@ -341,37 +368,40 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                 <div className="hidden lg:block bg-white rounded-xl border border-slate-200 p-4">
                     <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                         <Clock size={18} className="text-blue-600" />
-                        Heures de pointe
+                        Heures de pointe (24h)
                     </h3>
+                    {/* All 24 hours in a 12x2 grid */}
                     <div className="grid grid-cols-12 gap-1">
-                        {salesByHour.slice(6, 22).map((amount, i) => {
-                            const hour = i + 6;
-                            const intensity = amount / maxHourSale;
+                        {salesByHour.map((amount, hour) => {
+                            const intensity = maxHourSale > 0 ? amount / maxHourSale : 0;
+                            const isPeakHour = intensity > 0.7; // Top 30% are peak hours
                             return (
                                 <div
                                     key={hour}
-                                    className="aspect-square rounded flex items-center justify-center text-[9px] font-medium cursor-pointer group relative"
+                                    className={`aspect-square rounded flex items-center justify-center text-[9px] font-medium cursor-pointer group relative ${isPeakHour ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                                     style={{
                                         backgroundColor: intensity > 0
-                                            ? `rgba(79, 70, 229, ${0.2 + intensity * 0.8})`
+                                            ? `rgba(79, 70, 229, ${0.15 + intensity * 0.85})`
                                             : '#f1f5f9',
-                                        color: intensity > 0.5 ? 'white' : '#64748b'
+                                        color: intensity > 0.4 ? 'white' : '#64748b'
                                     }}
                                 >
                                     {hour}h
                                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">
-                                        {formatMoney(amount)}
+                                        {hour}h: {formatMoney(amount)}
+                                        {isPeakHour && ' 🔥'}
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
-                    <div className="mt-3 flex justify-between text-xs text-slate-400">
+                    <div className="mt-3 flex justify-between items-center text-xs text-slate-400">
                         <span>Moins actif</span>
-                        <div className="flex gap-1">
-                            {[0.2, 0.4, 0.6, 0.8, 1].map(i => (
+                        <div className="flex items-center gap-1">
+                            {[0.15, 0.35, 0.55, 0.75, 1].map(i => (
                                 <div key={i} className="w-4 h-2 rounded" style={{ backgroundColor: `rgba(79, 70, 229, ${i})` }} />
                             ))}
+                            <span className="ml-2 text-amber-500 font-medium">🔥 = Pointe</span>
                         </div>
                         <span>Plus actif</span>
                     </div>
