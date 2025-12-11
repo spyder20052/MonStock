@@ -16,7 +16,13 @@ const PaymentModal = ({ total, onClose, onConfirm, selectedCustomer }) => {
     // Validation
     const isValid = useMemo(() => {
         if (method === 'mobile_money') return true;
-        if (method === 'cash') return receivedAmount >= total;
+        if (method === 'cash') {
+            // Must receive enough money
+            if (receivedAmount < total) return false;
+            // If holding change, must have a customer selected
+            if (holdChange && !selectedCustomer) return false;
+            return true;
+        }
         if (method === 'credit') {
             // Must have a customer selected for credit
             if (!selectedCustomer) return false;
@@ -24,7 +30,7 @@ const PaymentModal = ({ total, onClose, onConfirm, selectedCustomer }) => {
             return receivedAmount < total;
         }
         return false;
-    }, [method, receivedAmount, total, selectedCustomer]);
+    }, [method, receivedAmount, total, selectedCustomer, holdChange]);
 
     const handleConfirm = () => {
         if (!isValid) return;
@@ -108,19 +114,26 @@ const PaymentModal = ({ total, onClose, onConfirm, selectedCustomer }) => {
                                         <span className="text-2xl font-bold text-emerald-700">{formatMoney(change)}</span>
                                     </div>
 
-                                    {selectedCustomer && (
-                                        <label className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors">
-                                            <input
-                                                type="checkbox"
-                                                checked={holdChange}
-                                                onChange={(e) => setHoldChange(e.target.checked)}
-                                                className="w-4 h-4 text-blue-600 bg-white border-blue-300 rounded focus:ring-blue-500"
-                                            />
-                                            <div className="flex-1">
-                                                <p className="text-sm font-medium text-blue-700">Garder la monnaie</p>
-                                                <p className="text-xs text-blue-600">Le client récupèrera sa monnaie plus tard</p>
-                                            </div>
-                                        </label>
+                                    {/* Option to hold change - ALWAYS visible when there's change */}
+                                    <label className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={holdChange}
+                                            onChange={(e) => setHoldChange(e.target.checked)}
+                                            className="w-4 h-4 text-blue-600 bg-white border-blue-300 rounded focus:ring-blue-500"
+                                        />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-medium text-blue-700">Garder la monnaie</p>
+                                            <p className="text-xs text-blue-600">Le client récupèrera sa monnaie plus tard</p>
+                                        </div>
+                                    </label>
+
+                                    {/* Warning if no customer selected but holding change */}
+                                    {holdChange && !selectedCustomer && (
+                                        <div className="bg-red-50 border border-red-100 rounded-xl p-3 flex items-start gap-3 text-red-700 text-sm animate-in fade-in slide-in-from-bottom-2">
+                                            <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+                                            <span>Veuillez sélectionner un client pour garder la monnaie.</span>
+                                        </div>
                                     )}
                                 </div>
                             )}

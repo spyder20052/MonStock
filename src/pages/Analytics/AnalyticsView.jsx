@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { TrendingUp, Package, Clock, DollarSign, Phone, AlertTriangle, Wallet } from 'lucide-react';
+import { TrendingUp, DollarSign, Package, Clock, AlertTriangle, Calendar, Phone, Wallet } from 'lucide-react';
 import { formatMoney } from '../../utils/helpers';
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
     const [period, setPeriod] = useState('7days');
@@ -24,10 +25,11 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
             data.push({
                 date: dateStr,
                 label: date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
+                shortLabel: date.toLocaleDateString('fr-FR', { weekday: 'short' }),
                 total: daySales.reduce((sum, s) => {
-                    if (s.type === 'repayment') return sum + (s.total || 0);
-                    if (s.isCredit) return sum + (s.amountPaid || 0);
-                    return sum + (s.total || 0);
+                    if (s.type === 'repayment') return sum + (Number(s.total) || 0);
+                    if (s.isCredit) return sum + (Number(s.amountPaid) || 0);
+                    return sum + (Number(s.total) || 0);
                 }, 0),
                 count: daySales.length
             });
@@ -36,6 +38,11 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
     }, [sales, period]);
 
     const maxSale = Math.max(...salesByDay.map(d => d.total), 1);
+
+    // Debug: Log sales data
+    console.log('📊 Sales by day:', salesByDay.map(d => ({ label: d.label, total: d.total })));
+    console.log('📈 Max sale:', maxSale);
+
 
     // Top 5 products
     const topProducts = useMemo(() => {
@@ -164,8 +171,8 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
 
     return (
         <div className="space-y-5">
-            {/* Period Selector */}
-            <div className="flex gap-2">
+            {/* Period Selector - Hidden on Mobile */}
+            <div className="hidden lg:flex gap-2">
                 {[
                     { key: '7days', label: '7 jours' },
                     { key: '30days', label: '30 jours' },
@@ -184,67 +191,110 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                 ))}
             </div>
 
-            {/* Account Tracking Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-emerald-500 flex items-center justify-between">
-                    <div>
-                        <p className="text-sm text-slate-500 font-medium mb-1">Caisse Espèces</p>
-                        <h3 className="text-2xl font-bold text-slate-800">{formatMoney(accountStats.cashTotal)}</h3>
+            {/* Account Tracking Cards - Compact 2x2 on mobile, 4 cols on desktop */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-4">
+                <div className="bg-white rounded-lg lg:rounded-xl p-2.5 lg:p-4 border border-slate-200 border-l-4 border-l-emerald-500 flex items-center justify-between">
+                    <div className="min-w-0">
+                        <p className="text-[10px] lg:text-sm text-slate-500 font-medium truncate">Caisse Espèces</p>
+                        <h3 className="text-base lg:text-2xl font-bold text-slate-800 truncate">{formatMoney(accountStats.cashTotal)}</h3>
                     </div>
-                    <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600">
-                        <DollarSign size={24} />
-                    </div>
-                </div>
-                <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-blue-500 flex items-center justify-between">
-                    <div>
-                        <p className="text-sm text-slate-500 font-medium mb-1">Compte Mobile Money</p>
-                        <h3 className="text-2xl font-bold text-slate-800">{formatMoney(accountStats.mobileMoneyTotal)}</h3>
-                    </div>
-                    <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
-                        <Phone size={24} />
+                    <div className="w-8 h-8 lg:w-12 lg:h-12 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600 flex-shrink-0 ml-2">
+                        <DollarSign className="w-4 h-4 lg:w-6 lg:h-6" />
                     </div>
                 </div>
-                <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-amber-500 flex items-center justify-between">
-                    <div>
-                        <p className="text-sm text-slate-500 font-medium mb-1">Monnaie à rendre</p>
-                        <h3 className="text-2xl font-bold text-amber-700">{formatMoney(cashManagement.totalChangeOwed)}</h3>
-                        <p className="text-xs text-slate-400 mt-1">{customers.filter(c => (c.changeOwed || 0) > 0).length} clients</p>
+                <div className="bg-white rounded-lg lg:rounded-xl p-2.5 lg:p-4 border border-slate-200 border-l-4 border-l-blue-500 flex items-center justify-between">
+                    <div className="min-w-0">
+                        <p className="text-[10px] lg:text-sm text-slate-500 font-medium truncate">Mobile Money</p>
+                        <h3 className="text-base lg:text-2xl font-bold text-slate-800 truncate">{formatMoney(accountStats.mobileMoneyTotal)}</h3>
                     </div>
-                    <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center text-amber-600">
-                        <Wallet size={24} />
+                    <div className="w-8 h-8 lg:w-12 lg:h-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 flex-shrink-0 ml-2">
+                        <Phone className="w-4 h-4 lg:w-6 lg:h-6" />
                     </div>
                 </div>
-                <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-indigo-500 flex items-center justify-between">
-                    <div>
-                        <p className="text-sm text-slate-500 font-medium mb-1">Net en caisse</p>
-                        <h3 className="text-2xl font-bold text-indigo-700">{formatMoney(cashManagement.netCash)}</h3>
+                <div className="bg-white rounded-lg lg:rounded-xl p-2.5 lg:p-4 border border-slate-200 border-l-4 border-l-amber-500 flex items-center justify-between">
+                    <div className="min-w-0">
+                        <p className="text-[10px] lg:text-sm text-slate-500 font-medium truncate">Monnaie à rendre</p>
+                        <h3 className="text-base lg:text-2xl font-bold text-amber-700 truncate">{formatMoney(cashManagement.totalChangeOwed)}</h3>
                     </div>
-                    <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600">
-                        <DollarSign size={24} />
+                    <div className="w-8 h-8 lg:w-12 lg:h-12 bg-amber-50 rounded-full flex items-center justify-center text-amber-600 flex-shrink-0 ml-2">
+                        <Wallet className="w-4 h-4 lg:w-6 lg:h-6" />
+                    </div>
+                </div>
+                <div className="bg-white rounded-lg lg:rounded-xl p-2.5 lg:p-4 border border-slate-200 border-l-4 border-l-indigo-500 flex items-center justify-between">
+                    <div className="min-w-0">
+                        <p className="text-[10px] lg:text-sm text-slate-500 font-medium truncate">Net en caisse</p>
+                        <h3 className="text-base lg:text-2xl font-bold text-indigo-700 truncate">{formatMoney(cashManagement.netCash)}</h3>
+                    </div>
+                    <div className="w-8 h-8 lg:w-12 lg:h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 flex-shrink-0 ml-2">
+                        <DollarSign className="w-4 h-4 lg:w-6 lg:h-6" />
                     </div>
                 </div>
             </div>
 
-            {/* Sales Chart */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-                <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                    <TrendingUp size={18} className="text-indigo-600" />
-                    Évolution des ventes
-                </h3>
-                <div className="h-48 flex items-end gap-1">
-                    {salesByDay.slice(-14).map((day, i) => (
-                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                            <div
-                                className="w-full bg-indigo-500 rounded-t hover:bg-indigo-600 transition-colors cursor-pointer group relative"
-                                style={{ height: `${(day.total / maxSale) * 100}%`, minHeight: day.total > 0 ? '4px' : '0' }}
-                            >
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">
-                                    {formatMoney(day.total)}
+            {/* Sales Chart - Desktop: Recharts, Mobile: Simple List */}
+            <div className="bg-white rounded-xl border border-slate-200 p-4 lg:p-6">
+                <h3 className="text-base lg:text-lg font-bold text-slate-800 mb-4 lg:mb-6">Évolution des ventes</h3>
+
+                {/* Desktop: Recharts Bar Chart */}
+                <div className="hidden lg:block h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={salesByDay}>
+                            <XAxis
+                                dataKey="label"
+                                tick={{ fontSize: 12, fill: '#64748b' }}
+                                axisLine={false}
+                                tickLine={false}
+                                interval={period === '90days' ? 6 : period === '30days' ? 2 : 0}
+                            />
+                            <Tooltip
+                                cursor={{ fill: '#f1f5f9' }}
+                                content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                        return (
+                                            <div className="bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg font-semibold">
+                                                {formatMoney(payload[0].value)}
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }}
+                            />
+                            <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                                {salesByDay.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill="url(#colorGradient)" />
+                                ))}
+                            </Bar>
+                            <defs>
+                                <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                                    <stop offset="100%" stopColor="#818cf8" stopOpacity={1} />
+                                </linearGradient>
+                            </defs>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+
+                {/* Mobile: Horizontal Bars - Last 7 Days */}
+                <div className="lg:hidden space-y-2">
+                    {(() => {
+                        const displayedDays = salesByDay.slice(-7);
+                        const maxDisplayed = Math.max(...displayedDays.map(d => d.total), 1);
+                        return displayedDays.map((day, i) => (
+                            <div key={i} className="flex items-center gap-3">
+                                <span className="text-xs text-slate-600 font-medium w-14 flex-shrink-0">{day.shortLabel}</span>
+                                <div className="flex-1 h-8 bg-slate-100 rounded-lg overflow-hidden">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-indigo-500 to-indigo-400 rounded-lg flex items-center justify-end px-2"
+                                        style={{ width: maxDisplayed > 0 ? `${Math.max((day.total / maxDisplayed) * 100, day.total > 0 ? 5 : 0)}%` : '0%' }}
+                                    >
+                                        {day.total > 0 && (
+                                            <span className="text-white text-xs font-bold">{formatMoney(day.total)}</span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                            <span className="text-[9px] text-slate-400 truncate w-full text-center">{day.label.split(' ')[0]}</span>
-                        </div>
-                    ))}
+                        ));
+                    })()}
                 </div>
                 <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between text-sm">
                     <span className="text-slate-500">Total période</span>
@@ -265,8 +315,8 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                         <div className="space-y-3">
                             {topProducts.map((product, i) => (
                                 <div key={product.id} className="flex items-center gap-3">
-                                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
-                                        }`}>
+                                    <span className={`w - 6 h - 6 rounded - full flex items - center justify - center text - xs font - bold ${i === 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                                        } `}>
                                         {i + 1}
                                     </span>
                                     <div className="flex-1 min-w-0">
@@ -277,7 +327,7 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                                             <div
                                                 className="h-full bg-emerald-500 rounded-full"
-                                                style={{ width: `${(product.qty / maxQty) * 100}%` }}
+                                                style={{ width: `${(product.qty / maxQty) * 100}% ` }}
                                             />
                                         </div>
                                     </div>
@@ -287,8 +337,8 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                     )}
                 </div>
 
-                {/* Peak Hours */}
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                {/* Peak Hours - Hidden on Mobile */}
+                <div className="hidden lg:block bg-white rounded-xl border border-slate-200 p-4">
                     <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                         <Clock size={18} className="text-blue-600" />
                         Heures de pointe
@@ -339,11 +389,11 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                 ) : (
                     <div className="space-y-2">
                         {stockPredictions.map(pred => (
-                            <div key={pred.name} className={`flex items-center justify-between p-3 rounded-lg ${pred.daysLeft <= 7 ? 'bg-red-50' : 'bg-amber-50'
-                                }`}>
+                            <div key={pred.name} className={`flex items - center justify - between p - 3 rounded - lg ${pred.daysLeft <= 7 ? 'bg-red-50' : 'bg-amber-50'
+                                } `}>
                                 <div className="flex items-center gap-3">
-                                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${pred.daysLeft <= 7 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                                        }`}>
+                                    <span className={`w - 8 h - 8 rounded - lg flex items - center justify - center font - bold text - sm ${pred.daysLeft <= 7 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                                        } `}>
                                         {pred.daysLeft}j
                                     </span>
                                     <div>

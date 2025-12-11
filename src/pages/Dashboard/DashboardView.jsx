@@ -32,90 +32,111 @@ const DashboardView = ({ sales, stats, ingredients, products, setActiveTab, setV
     const filteredTotal = filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
 
     return (
-        <div className="space-y-5">
-            {/* Stats Grid - Mobile optimized vertical layout */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="bg-white rounded-xl p-3 lg:p-4 border border-slate-200 border-l-4 border-l-indigo-500">
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
-                        <div className="w-8 h-8 lg:w-10 lg:h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <DollarSign size={16} className="lg:hidden text-indigo-600" />
-                            <DollarSign size={20} className="hidden lg:block text-indigo-600" />
+        <div className="space-y-4">
+            {/* Mobile: Single Main Stat Card */}
+            <div className="lg:hidden">
+                <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl p-6 text-white shadow-xl">
+                    <p className="text-indigo-100 text-sm font-medium mb-2">Ventes Aujourd'hui</p>
+                    <h2 className="text-4xl font-bold mb-1">{formatMoney(stats.todayRevenue)}</h2>
+                    <div className="flex items-center gap-4 mt-4 text-sm">
+                        <div>
+                            <p className="text-indigo-200">Total période</p>
+                            <p className="font-semibold">{formatMoney(stats.totalRevenue)}</p>
                         </div>
-                        <div className="min-w-0">
-                            <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Chiffre d'affaires</p>
-                            <h3 className="text-base lg:text-lg font-bold text-slate-800 truncate">{formatMoney(stats.totalRevenue)}</h3>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-xl p-3 lg:p-4 border border-slate-200 border-l-4 border-l-emerald-500">
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
-                        <div className="w-8 h-8 lg:w-10 lg:h-10 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <TrendingUp size={16} className="lg:hidden text-emerald-600" />
-                            <TrendingUp size={20} className="hidden lg:block text-emerald-600" />
-                        </div>
-                        <div className="min-w-0">
-                            <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Bénéfice</p>
-                            <h3 className="text-base lg:text-lg font-bold text-emerald-600 truncate">{formatMoney(stats.totalProfit)}</h3>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-xl p-3 lg:p-4 border border-slate-200 border-l-4 border-l-blue-500">
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
-                        <div className="w-8 h-8 lg:w-10 lg:h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <ShoppingCart size={16} className="lg:hidden text-blue-600" />
-                            <ShoppingCart size={20} className="hidden lg:block text-blue-600" />
-                        </div>
-                        <div className="min-w-0">
-                            <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Aujourd'hui</p>
-                            <h3 className="text-base lg:text-lg font-bold text-slate-800 truncate">{formatMoney(stats.todayRevenue)}</h3>
-                        </div>
-                    </div>
-                </div>
-
-                <div className={`bg-white rounded-xl p-3 lg:p-4 border border-l-4 ${stats.lowStockCount > 0 ? 'border-red-200 border-l-red-500' : 'border-slate-200 border-l-slate-400'}`}>
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
-                        <div className={`w-8 h-8 lg:w-10 lg:h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${stats.lowStockCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
-                            <AlertTriangle size={16} className={`lg:hidden ${stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`} />
-                            <AlertTriangle size={20} className={`hidden lg:block ${stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`} />
-                        </div>
-                        <div className="min-w-0">
-                            <p className="text-slate-500 text-[10px] lg:text-xs font-medium">Alertes stock</p>
-                            <h3 className={`text-base lg:text-lg font-bold ${stats.lowStockCount > 0 ? 'text-red-600' : 'text-slate-600'}`}>{stats.lowStockCount}</h3>
+                        <div className="w-px h-8 bg-indigo-400"></div>
+                        <div>
+                            <p className="text-indigo-200">Stock bas</p>
+                            <p className={`font-semibold ${stats.lowStockCount > 0 ? 'text-yellow-300' : ''}`}>
+                                {stats.lowStockCount}
+                            </p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Quick Actions - Clear buttons with icons */}
+            {/* Desktop: Full Stats Grid */}
+            <div className="hidden lg:grid lg:grid-cols-4 gap-3">
+                <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-indigo-500">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <DollarSign size={20} className="text-indigo-600" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-slate-500 text-xs font-medium">Chiffre d'affaires</p>
+                            <h3 className="text-lg font-bold text-slate-800 truncate">{formatMoney(stats.totalRevenue)}</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-emerald-500">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <TrendingUp size={20} className="text-emerald-600" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-slate-500 text-xs font-medium">Bénéfice</p>
+                            <h3 className="text-lg font-bold text-emerald-600 truncate">{formatMoney(stats.totalProfit)}</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl p-4 border border-slate-200 border-l-4 border-l-blue-500">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <ShoppingCart size={20} className="text-blue-600" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-slate-500 text-xs font-medium">Aujourd'hui</p>
+                            <h3 className="text-lg font-bold text-slate-800 truncate">{formatMoney(stats.todayRevenue)}</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div className={`bg-white rounded-xl p-4 border border-l-4 ${stats.lowStockCount > 0 ? 'border-red-200 border-l-red-500' : 'border-slate-200 border-l-slate-400'}`}>
+                    <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${stats.lowStockCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                            <AlertTriangle size={20} className={`${stats.lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`} />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-slate-500 text-xs font-medium">Alertes stock</p>
+                            <h3 className={`text-lg font-bold ${stats.lowStockCount > 0 ? 'text-red-600' : 'text-slate-600'}`}>{stats.lowStockCount}</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Quick Actions */}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
                 <h3 className="text-sm font-semibold text-slate-600 mb-3">Actions rapides</h3>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                     <button
                         onClick={() => setActiveTab('pos')}
-                        className="flex items-center gap-3 p-3 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                        className="flex flex-col lg:flex-row items-center justify-center lg:justify-start gap-2 lg:gap-3 p-4 lg:p-3 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
                     >
-                        <ShoppingCart size={18} />
-                        <span className="font-medium text-sm">Nouvelle vente</span>
+                        <ShoppingCart size={24} className="lg:hidden" />
+                        <ShoppingCart size={18} className="hidden lg:block" />
+                        <span className="font-semibold text-sm lg:font-medium">Nouvelle vente</span>
                     </button>
                     <button
                         onClick={() => setActiveTab('inventory')}
-                        className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
+                        className="flex flex-col lg:flex-row items-center justify-center lg:justify-start gap-2 lg:gap-3 p-4 lg:p-3 rounded-xl bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
+                    >
+                        <Package size={24} className="lg:hidden" />
+                        <Package size={18} className="hidden lg:block" />
+                        <span className="font-semibold text-sm lg:font-medium">Voir stock</span>
+                    </button>
+
+                    {/* Desktop only buttons */}
+                    <button
+                        onClick={() => setActiveTab('inventory')}
+                        className="hidden lg:flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
                     >
                         <Plus size={18} />
                         <span className="font-medium text-sm">Ajouter produit</span>
                     </button>
                     <button
-                        onClick={() => setActiveTab('inventory')}
-                        className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
-                    >
-                        <Package size={18} />
-                        <span className="font-medium text-sm">Voir stock</span>
-                    </button>
-                    <button
                         onClick={() => setActiveTab('sales_history')}
-                        className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
+                        className="hidden lg:flex items-center gap-3 p-3 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
                     >
                         <History size={18} />
                         <span className="font-medium text-sm">Historique</span>
@@ -123,8 +144,8 @@ const DashboardView = ({ sales, stats, ingredients, products, setActiveTab, setV
                 </div>
             </div>
 
-            {/* Ingredient Alerts - Show affected products */}
-            {(() => {
+            {/* Ingredient Alerts - Hide on Mobile */}
+            <div className="hidden lg:block">{(() => {
                 const lowIngredients = ingredients.filter(i => isIngredientLow(i));
                 if (lowIngredients.length === 0) return null;
 
@@ -178,9 +199,9 @@ const DashboardView = ({ sales, stats, ingredients, products, setActiveTab, setV
                         </div>
                     </div>
                 );
-            })()}
+            })()}</div>
 
-            {/* Sales History with Date Filter */}
+            {/* Sales History with Date Filter - Simplified on Mobile */}
             <div className="bg-white rounded-xl border border-slate-200">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border-b border-slate-100 gap-3">
                     <div className="flex items-center gap-2">
@@ -220,13 +241,14 @@ const DashboardView = ({ sales, stats, ingredients, products, setActiveTab, setV
                     </div>
                 ) : (
                     <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                        {filteredSales.slice(0, 10).map(sale => (
+                        {/* Mobile: Show only 3 sales, Desktop: Show 10 */}
+                        {filteredSales.slice(0, window.innerWidth < 1024 ? 3 : 10).map(sale => (
                             <div key={sale.id} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center flex-shrink-0">
                                         <FileText size={14} className="text-slate-500" />
                                     </div>
-                                    <div>
+                                    <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2">
                                             <p className="font-medium text-sm text-slate-700">{formatDate(sale.date)}</p>
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${sale.isCredit
@@ -248,16 +270,16 @@ const DashboardView = ({ sales, stats, ingredients, products, setActiveTab, setV
                                                 }
                                             </span>
                                         </div>
-                                        <p className="text-xs text-slate-400">{sale.items?.length || 0} article{(sale.items?.length || 0) > 1 ? 's' : ''}</p>
+                                        <p className="text-xs text-slate-400 truncate">{sale.items?.length || 0} article{(sale.items?.length || 0) > 1 ? 's' : ''}</p>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 lg:gap-3 flex-shrink-0 ml-2">
                                     <span className="font-bold text-sm text-slate-800">{formatMoney(sale.total)}</span>
                                     <button
                                         onClick={() => setViewingReceipt(sale)}
                                         className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                                     >
-                                        <Printer size={14} />
+                                        <Printer size={16} />
                                     </button>
                                 </div>
                             </div>

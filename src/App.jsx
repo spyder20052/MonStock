@@ -716,10 +716,19 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        {/* Mobile Header - More Compact */}
+      <main className={`flex-1 flex flex-col h-screen overflow-hidden relative transition-transform duration-300 ease-out ${showMobileMenu ? 'lg:transform-none transform translate-x-64 scale-95' : ''
+        }`}>
+        {/* Mobile Header - With Menu Button */}
         <header className="h-14 lg:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shadow-sm z-10">
           <div className="flex items-center gap-3">
+            {/* Hamburger Menu Button - Mobile Only */}
+            <button
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
+            >
+              <Menu size={24} />
+            </button>
+
             <div className="lg:hidden w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center">
               <Package size={16} className="text-white" />
             </div>
@@ -741,7 +750,7 @@ export default function App() {
           </div>
         </header >
 
-        <div className="flex-1 overflow-auto p-3 lg:p-6 custom-scrollbar pb-20 lg:pb-6">
+        <div className="flex-1 overflow-auto p-3 lg:p-6 custom-scrollbar">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardView
@@ -948,103 +957,112 @@ export default function App() {
         }
       </main >
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
-        <div className="grid grid-cols-5 h-16">
-          {[
-            { id: 'dashboard', icon: LayoutDashboard, label: 'Accueil' },
-            { id: 'pos', icon: ShoppingCart, label: 'Caisse' },
-            { id: 'inventory', icon: Package, label: 'Stock' },
-            { id: 'sales_history', icon: History, label: 'Ventes' },
-          ].map(item => (
-            <button
-              key={item.id}
-              onClick={() => {
-                navigate(`/${item.id}`);
-                setShowMobileCart(false);
-                setShowMobileMenu(false);
-              }}
-              className={`flex flex-col items-center justify-center gap-1 transition-all ${activeTab === item.id
-                ? 'text-indigo-600 bg-indigo-50'
-                : 'text-slate-500 active:bg-slate-50'
-                }`}
-            >
-              <item.icon size={22} strokeWidth={activeTab === item.id ? 2.5 : 2} />
-              <span className={`text-[10px] ${activeTab === item.id ? 'font-semibold' : 'font-medium'}`}>
-                {item.label}
-              </span>
-            </button>
-          ))}
 
-          {/* More Menu */}
-          <button
-            onClick={() => setShowMobileMenu(!showMobileMenu)}
-            className={`flex flex-col items-center justify-center gap-1 transition-all ${showMobileMenu || ['analytics', 'customers', 'ingredients', 'profile'].includes(activeTab)
-              ? 'text-indigo-600 bg-indigo-50'
-              : 'text-slate-500 active:bg-slate-50'
-              }`}
-          >
-            <Menu size={22} strokeWidth={showMobileMenu ? 2.5 : 2} />
-            <span className={`text-[10px] ${showMobileMenu ? 'font-semibold' : 'font-medium'}`}>
-              Plus
-            </span>
-          </button>
-        </div>
-      </nav>
-
-      {/* Mobile Overflow Menu */}
+      {/* Mobile Slide-Push Menu - Immersive Stack Effect */}
       {showMobileMenu && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/40 z-40 backdrop-blur-sm"
-          onClick={() => setShowMobileMenu(false)}
-        >
+        <>
+          {/* Backdrop - Subtle */}
           <div
-            className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[60vh] overflow-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">Menu</h3>
-              <button
-                onClick={() => setShowMobileMenu(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg active:bg-slate-100"
-              >
-                <X size={20} />
-              </button>
+            className="lg:hidden fixed inset-0 bg-black/30 z-40 transition-opacity"
+            onClick={() => setShowMobileMenu(false)}
+          />
+
+          {/* Sidebar Menu - Pushes Content */}
+          <div className={`lg:hidden fixed left-0 top-0 bottom-0 w-64 bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ease-out`}>
+            {/* Header */}
+            <div className="p-6 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center">
+                  <Package size={24} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-white font-bold text-lg">MonStock</h2>
+                  <p className="text-slate-400 text-xs">POS Cloud</p>
+                </div>
+              </div>
             </div>
 
-            <div className="p-3 space-y-1">
-              {[
-                { id: 'analytics', icon: BarChart2, label: 'Analyses', description: 'Statistiques et rapports' },
-                ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients', description: 'Gestion des clients' }] : []),
-                { id: 'ingredients', icon: Package, label: 'Ingrédients', description: 'Stock des ingrédients' },
-                { id: 'profile', icon: User, label: 'Mon Profil', description: 'Paramètres et données' },
-              ].map(item => (
+            {/* Navigation */}
+            <div className="flex-1 overflow-y-auto py-4">
+              {/* Main Navigation */}
+              <div className="px-3 space-y-1">
+                {[
+                  { id: 'dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
+                  { id: 'pos', icon: ShoppingCart, label: 'Caisse (Scan)' },
+                  { id: 'inventory', icon: Package, label: 'Produits & QR' },
+                  { id: 'sales_history', icon: History, label: 'Historique' },
+                  { id: 'analytics', icon: BarChart2, label: 'Analyses' },
+                ].map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      navigate(`/${item.id}`);
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === item.id
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                  >
+                    <item.icon size={20} strokeWidth={activeTab === item.id ? 2.5 : 2} />
+                    <span className={`text-sm ${activeTab === item.id ? 'font-semibold' : 'font-medium'}`}>
+                      {item.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Divider */}
+              <div className="my-4 mx-3 border-t border-slate-800" />
+
+              {/* Secondary Navigation */}
+              <div className="px-3 space-y-1">
+                {[
+                  ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
+                  { id: 'ingredients', icon: Package, label: 'Ingrédients' },
+                  { id: 'profile', icon: Settings, label: 'Paramètres' },
+                ].map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      navigate(`/${item.id}`);
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === item.id
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                  >
+                    <item.icon size={20} strokeWidth={activeTab === item.id ? 2.5 : 2} />
+                    <span className={`text-sm ${activeTab === item.id ? 'font-semibold' : 'font-medium'}`}>
+                      {item.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer - User Profile */}
+            <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800 bg-slate-900">
+              <div className="flex items-center gap-3 px-2">
+                <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
+                  <User size={20} className="text-indigo-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{user?.displayName || 'Utilisateur'}</p>
+                  <p className="text-slate-400 text-xs truncate">{user?.email}</p>
+                </div>
                 <button
-                  key={item.id}
-                  onClick={() => {
-                    navigate(`/${item.id}`);
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activeTab === item.id
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-slate-700 active:bg-slate-50'
-                    }`}
+                  onClick={handleLogout}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  title="Déconnexion"
                 >
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${activeTab === item.id
-                    ? 'bg-indigo-100'
-                    : 'bg-slate-100'
-                    }`}>
-                    <item.icon size={20} />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold text-sm">{item.label}</p>
-                    <p className="text-xs text-slate-500">{item.description}</p>
-                  </div>
+                  <LogOut size={18} />
                 </button>
-              ))}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Modals */}

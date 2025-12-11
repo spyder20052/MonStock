@@ -28,86 +28,89 @@ const POSView = ({
         <div className="flex flex-col lg:flex-row gap-3 h-[calc(100vh-140px)]">
             {/* Grille Produits */}
             <div className="flex-1 flex flex-col gap-3">
+                {/* Search Bar - More Compact on Mobile */}
                 <div className="flex gap-2">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                         <input
                             type="text"
                             placeholder="Rechercher..."
-                            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                            className="w-full pl-10 pr-4 py-3 lg:py-2.5 rounded-xl lg:rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm font-medium"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <button onClick={() => setIsScannerOpen(true)} className="px-4 bg-slate-800 text-white rounded-lg font-medium text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors">
-                        <Scan size={18} />
-                        <span className="hidden sm:inline">Scanner</span>
+                    <button
+                        onClick={() => setIsScannerOpen(true)}
+                        className="px-4 lg:px-6 py-3 lg:py-2.5 bg-slate-800 text-white rounded-xl lg:rounded-lg font-semibold text-sm flex items-center gap-2 hover:bg-slate-700 active:scale-95 transition-all shadow-sm"
+                    >
+                        <Scan size={20} />
+                        <span className="hidden sm:inline">Scan</span>
                     </button>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto flex-1 content-start">
+                {/* Product Grid - Responsive: 1 col mobile, 2+ cols desktop */}
+                <div className="flex-1 overflow-auto custom-scrollbar">
                     {filteredProducts.length === 0 ? (
-                        <div className="col-span-full flex flex-col items-center justify-center py-10 text-slate-400">
-                            <Package size={40} className="mb-2 opacity-50" />
-                            <p className="text-sm">Aucun produit trouvé</p>
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                            <Package size={48} className="mb-3" />
+                            <p className="text-sm font-medium">Aucun produit trouvé</p>
                         </div>
                     ) : (
-                        filteredProducts.map(product => {
-                            const availableStock = getAvailableProductStock(product, cart, ingredients);
-                            const cartItem = cart.find(item => item.id === product.id);
-                            const qtyInCart = cartItem ? cartItem.qty : 0;
-                            const isLowStock = product.isComposite ? availableStock <= 2 : availableStock <= product.minStock;
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                            {filteredProducts.map(product => {
+                                const availableStock = getAvailableProductStock(product, cart, ingredients);
+                                const isAvailable = availableStock > 0;
 
-                            return (
-                                <button
-                                    key={product.id}
-                                    onClick={() => addToCart(product)}
-                                    disabled={availableStock <= 0}
-                                    className={`relative flex flex-col p-4 rounded-xl border-2 text-left transition-all group ${availableStock <= 0
-                                        ? 'bg-slate-50 opacity-50 cursor-not-allowed border-slate-200'
-                                        : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-lg active:scale-95'
-                                        }`}
-                                >
-                                    {/* Composite badge */}
-                                    {product.isComposite && (
-                                        <span className="absolute top-2 left-2 text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-bold">
-                                            Composé
-                                        </span>
-                                    )}
+                                return (
+                                    <button
+                                        key={product.id}
+                                        onClick={() => addToCart(product)}
+                                        disabled={!isAvailable}
+                                        className={`group relative p-4 rounded-lg border-2 transition-all text-left ${isAvailable
+                                            ? 'border-slate-200 bg-white hover:border-indigo-300 hover:shadow-md active:scale-98'
+                                            : 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed'
+                                            }`}
+                                    >
+                                        {/* Product Card - Vertical Layout for Desktop */}
+                                        <div className="flex flex-col items-start gap-3">
+                                            {/* Product Icon */}
+                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${isAvailable
+                                                ? 'bg-indigo-50 text-indigo-600'
+                                                : 'bg-slate-100 text-slate-400'
+                                                }`}>
+                                                <Package size={24} />
+                                            </div>
 
-                                    {/* Cart quantity badge */}
-                                    {qtyInCart > 0 && (
-                                        <span className="absolute top-2 right-8 text-[9px] px-1.5 py-0.5 rounded bg-indigo-500 text-white font-bold">
-                                            {qtyInCart} au panier
-                                        </span>
-                                    )}
+                                            {/* Product Info */}
+                                            <div className="flex-1 w-full">
+                                                <h3 className={`font-bold text-sm mb-1 truncate ${isAvailable ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                    {product.name}
+                                                </h3>
+                                                <p className={`text-base font-bold mb-2 ${isAvailable ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                                    {formatMoney(product.price)}
+                                                </p>
+                                                <span className={`text-xs px-2 py-0.5 rounded-full ${isAvailable
+                                                    ? availableStock <= 5
+                                                        ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                                                        : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                    : 'bg-red-50 text-red-600 border border-red-100'
+                                                    }`}>
+                                                    {isAvailable ? `${availableStock} en stock` : 'Rupture'}
+                                                </span>
+                                            </div>
 
-                                    {/* Add to cart indicator */}
-                                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${availableStock <= 0
-                                        ? 'bg-slate-200'
-                                        : 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white'
-                                        }`}>
-                                        <Plus size={14} />
-                                    </div>
-
-                                    {/* Product name */}
-                                    <h4 className={`font-semibold text-slate-800 text-sm line-clamp-2 mb-3 ${product.isComposite ? 'mt-4' : ''} pr-6`}>{product.name}</h4>
-
-                                    {/* Price and stock */}
-                                    <div className="flex items-end justify-between w-full mt-auto">
-                                        <span className="text-lg font-bold text-slate-800">{formatMoney(product.price)}</span>
-                                        <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${availableStock <= 0
-                                            ? 'bg-slate-100 text-slate-500'
-                                            : isLowStock
-                                                ? 'bg-amber-100 text-amber-700'
-                                                : 'bg-emerald-100 text-emerald-700'
-                                            }`}>
-                                            {availableStock <= 0 ? 'Rupture' : `${availableStock} dispo`}
-                                        </span>
-                                    </div>
-                                </button>
-                            );
-                        })
+                                            {/* Add Button - Top Right */}
+                                            {isAvailable && (
+                                                <div className="absolute top-3 right-3 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md">
+                                                    <Plus size={14} className="text-white" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     )}
                 </div>
             </div>
