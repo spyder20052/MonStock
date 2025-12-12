@@ -3,30 +3,108 @@ export const PERMISSIONS = {
     VIEW_DASHBOARD: 'VIEW_DASHBOARD',
 
     // Finance (Sensible)
-    VIEW_FINANCIAL_ANALYTICS: 'VIEW_FINANCIAL_ANALYTICS', // Vues "Bénéfice", "Marges"
-    MANAGE_EXPENSES: 'MANAGE_EXPENSES',                   // Ajouter/Modifier dépenses
+    VIEW_FINANCIAL_ANALYTICS: 'VIEW_FINANCIAL_ANALYTICS',
+    MANAGE_EXPENSES: 'MANAGE_EXPENSES',
     VIEW_EXPENSES: 'VIEW_EXPENSES',
 
     // Gestion d'Équipe (Admin rights)
-    MANAGE_TEAM: 'MANAGE_TEAM',         // Créer/Modifier utilisateurs
+    MANAGE_TEAM: 'MANAGE_TEAM',
 
     // Ventes & POS
-    ACCESS_POS: 'ACCESS_POS',           // Accès à la caisse
-    MANAGE_SALES: 'MANAGE_SALES',       // Rembourser, Supprimer une vente
+    ACCESS_POS: 'ACCESS_POS',
+    MANAGE_SALES: 'MANAGE_SALES',
     VIEW_SALES_HISTORY: 'VIEW_SALES_HISTORY',
 
     // Stocks (Produits & Ingrédients)
     VIEW_STOCK: 'VIEW_STOCK',
-    MANAGE_STOCK: 'MANAGE_STOCK',       // Créer, Modifier, Supprimer produits/ingrédients
-    MANAGE_INVENTORY: 'MANAGE_INVENTORY', // Faire des inventaires (ajustements quantité)
+    MANAGE_STOCK: 'MANAGE_STOCK',
+    MANAGE_INVENTORY: 'MANAGE_INVENTORY',
 
     // Clients
     VIEW_CUSTOMERS: 'VIEW_CUSTOMERS',
-    MANAGE_CUSTOMERS: 'MANAGE_CUSTOMERS', // Modifier/Supprimer clients
-    MANAGE_CUSTOMER_DEBTS: 'MANAGE_CUSTOMER_DEBTS', // Gérer les dettes/crédits
+    MANAGE_CUSTOMERS: 'MANAGE_CUSTOMERS',
+    MANAGE_CUSTOMER_DEBTS: 'MANAGE_CUSTOMER_DEBTS',
 
     // Paramètres
     MANAGE_SETTINGS: 'MANAGE_SETTINGS'
+};
+
+export const PERMISSION_METADATA = {
+    [PERMISSIONS.VIEW_DASHBOARD]: {
+        label: "Voir le Tableau de Bord",
+        description: "Accès à la vue d'ensemble des activités.",
+        category: "Général"
+    },
+    [PERMISSIONS.VIEW_FINANCIAL_ANALYTICS]: {
+        label: "Voir les Analyses Financières",
+        description: "Accès aux rapports P&L, marges et bénéfices.",
+        category: "Finance"
+    },
+    [PERMISSIONS.MANAGE_EXPENSES]: {
+        label: "Gérer les Dépenses",
+        description: "Ajouter, modifier ou supprimer des dépenses.",
+        category: "Finance"
+    },
+    [PERMISSIONS.VIEW_EXPENSES]: {
+        label: "Voir les Dépenses",
+        description: "Consulter l'historique des dépenses.",
+        category: "Finance"
+    },
+    [PERMISSIONS.MANAGE_TEAM]: {
+        label: "Gérer l'Équipe",
+        description: "Inviter des membres, modifier les rôles et permissions.",
+        category: "Administration"
+    },
+    [PERMISSIONS.ACCESS_POS]: {
+        label: "Accès à la Caisse (POS)",
+        description: "Enregistrer des ventes et encaisser des clients.",
+        category: "Ventes"
+    },
+    [PERMISSIONS.MANAGE_SALES]: {
+        label: "Gérer les Ventes",
+        description: "Rembourser ou supprimer des tickets de vente.",
+        category: "Ventes"
+    },
+    [PERMISSIONS.VIEW_SALES_HISTORY]: {
+        label: "Voir l'Historique des Ventes",
+        description: "Consulter la liste des ventes passées.",
+        category: "Ventes"
+    },
+    [PERMISSIONS.VIEW_STOCK]: {
+        label: "Voir le Stock",
+        description: "Consulter la liste des produits et ingrédients.",
+        category: "Stock"
+    },
+    [PERMISSIONS.MANAGE_STOCK]: {
+        label: "Gérer le Stock",
+        description: "Créer, modifier ou supprimer des produits/ingrédients.",
+        category: "Stock"
+    },
+    [PERMISSIONS.MANAGE_INVENTORY]: {
+        label: "Faire des Inventaires",
+        description: "Ajuster manuellement les quantités en stock.",
+        category: "Stock"
+    },
+    [PERMISSIONS.VIEW_CUSTOMERS]: {
+        label: "Voir les Clients",
+        description: "Accéder à la liste des clients.",
+        category: "Clients"
+    },
+    [PERMISSIONS.MANAGE_CUSTOMERS]: {
+        label: "Gérer les Clients",
+        description: "Créer, modifier ou supprimer des fiches clients.",
+        category: "Clients"
+    },
+    [PERMISSIONS.MANAGE_CUSTOMER_DEBTS]: {
+        label: "Gérer les Dettes/Crédits",
+        description: "Enregistrer des remboursements de dettes.",
+        category: "Clients"
+    },
+    [PERMISSIONS.MANAGE_SETTINGS]: {
+        label: "Gérer les Paramètres",
+        description: "Accéder aux réglages globaux de l'application.",
+        category: "Général"
+    }
 };
 
 export const ROLES = {

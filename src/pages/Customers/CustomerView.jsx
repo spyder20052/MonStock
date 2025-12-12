@@ -6,6 +6,7 @@ import CreateCustomerModal from '../../components/modals/CreateCustomerModal';
 import DeleteCustomerModal from '../../components/modals/DeleteCustomerModal';
 import RepaymentModal from '../../components/modals/RepaymentModal';
 import ChangeRepaymentModal from '../../components/modals/ChangeRepaymentModal';
+import { PERMISSIONS, hasPermission } from '../../utils/permissions';
 
 const CustomerView = ({
     customers,
@@ -21,7 +22,8 @@ const CustomerView = ({
     user,
     showNotification,
     setRepaymentSale,
-    setReturnChangeCustomer
+    setReturnChangeCustomer,
+    userProfile
 }) => {
     const [customerSearchTerm, setCustomerSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('recent'); // recent, spent, purchases
@@ -29,8 +31,38 @@ const CustomerView = ({
     const [showCreateCustomerModal, setShowCreateCustomerModal] = useState(false);
     const [deletingCustomer, setDeletingCustomer] = useState(null);
 
+    // 1. Enrich ALL customers with sales stats first
+    const allEnrichedCustomers = useMemo(() => {
+        return customers.map(c => {
+            const customerSales = sales.filter(s => s.customerId === c.id);
+            const totalSpent = customerSales.reduce((sum, s) => sum + (s.total || 0), 0);
+            const totalPurchases = customerSales.length;
+            const totalItems = customerSales.reduce((sum, s) => {
+                const saleQty = s.items?.reduce((qtySum, item) => qtySum + (item.quantity || 1), 0) || 0;
+                return sum + saleQty;
+            }, 0);
+
+            // Get last purchase date
+            let lastPurchaseDate = c.createdAt; // default
+            if (customerSales.length > 0) {
+                // Find most recent sale
+                const dates = customerSales.map(s => new Date(s.date).getTime());
+                lastPurchaseDate = new Date(Math.max(...dates));
+            }
+
+            return {
+                ...c,
+                totalSpent,
+                totalPurchases,
+                totalItems,
+                lastPurchaseDate
+            };
+        });
+    }, [customers, sales]);
+
+    // 2. Filter and Sort based on enriched data
     const filteredCustomers = useMemo(() => {
-        let filtered = customers.filter(c =>
+        let filtered = allEnrichedCustomers.filter(c =>
             c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
             (c.phone && c.phone.includes(customerSearchTerm)) ||
             (c.email && c.email.toLowerCase().includes(customerSearchTerm.toLowerCase()))
@@ -39,32 +71,32 @@ const CustomerView = ({
         // Sort
         switch (sortBy) {
             case 'spent':
-                filtered.sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
+                filtered.sort((a, b) => b.totalSpent - a.totalSpent);
                 break;
             case 'purchases':
-                filtered.sort((a, b) => (b.totalPurchases || 0) - (a.totalPurchases || 0));
+                filtered.sort((a, b) => b.totalPurchases - a.totalPurchases);
                 break;
             case 'recent':
             default:
                 filtered.sort((a, b) => {
-                    const dateA = a.lastPurchaseDate?.toDate?.() || a.createdAt?.toDate?.() || new Date(0);
-                    const dateB = b.lastPurchaseDate?.toDate?.() || b.createdAt?.toDate?.() || new Date(0);
+                    const dateA = a.lastPurchaseDate instanceof Date ? a.lastPurchaseDate : (a.lastPurchaseDate?.toDate?.() || new Date(0));
+                    const dateB = b.lastPurchaseDate instanceof Date ? b.lastPurchaseDate : (b.lastPurchaseDate?.toDate?.() || new Date(0));
                     return dateB - dateA;
                 });
         }
 
         return filtered;
-    }, [customers, customerSearchTerm, sortBy]);
+    }, [allEnrichedCustomers, customerSearchTerm, sortBy]);
 
     const customerStats = useMemo(() => {
         return {
-            total: customers.length,
-            totalRevenue: customers.reduce((sum, c) => sum + (c.totalSpent || 0), 0),
-            totalDebt: customers.reduce((sum, c) => sum + (c.debt || 0), 0),
-            avgSpent: customers.length > 0 ? customers.reduce((sum, c) => sum + (c.totalSpent || 0), 0) / customers.length : 0,
-            topCustomer: customers.reduce((max, c) => (c.totalSpent || 0) > (max.totalSpent || 0) ? c : max, customers[0] || {})
+            total: allEnrichedCustomers.length,
+            totalRevenue: allEnrichedCustomers.reduce((sum, c) => sum + (c.totalSpent || 0), 0),
+            totalDebt: allEnrichedCustomers.reduce((sum, c) => sum + (c.debt || 0), 0),
+            avgSpent: allEnrichedCustomers.length > 0 ? allEnrichedCustomers.reduce((sum, c) => sum + (c.totalSpent || 0), 0) / allEnrichedCustomers.length : 0,
+            topCustomer: allEnrichedCustomers.reduce((max, c) => (c.totalSpent || 0) > (max.totalSpent || 0) ? c : max, allEnrichedCustomers[0] || {})
         };
-    }, [customers]);
+    }, [allEnrichedCustomers]);
 
     const getCustomerPurchases = (customerId) => {
         return sales.filter(s => s.customerId === customerId);
@@ -160,13 +192,15 @@ const CustomerView = ({
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <span className="text-2xl font-bold text-amber-700">{formatMoney(customer.changeOwed)}</span>
-                                    <button
-                                        onClick={() => setReturnChangeCustomer(customer)}
-                                        className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 transition-colors flex items-center gap-2 shadow-sm"
-                                    >
-                                        <Wallet size={16} />
-                                        Rendre
-                                    </button>
+                                    {hasPermission(userProfile, PERMISSIONS.MANAGE_CUSTOMER_DEBTS) && (
+                                        <button
+                                            onClick={() => setReturnChangeCustomer(customer)}
+                                            className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 transition-colors flex items-center gap-2 shadow-sm"
+                                        >
+                                            <Wallet size={16} />
+                                            Rendre
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -225,7 +259,7 @@ const CustomerView = ({
                                         >
                                             <Printer size={16} className="text-slate-600" />
                                         </button>
-                                        {sale.isCredit && (sale.amountPaid || 0) < sale.total && (
+                                        {sale.isCredit && (sale.amountPaid || 0) < sale.total && hasPermission(userProfile, PERMISSIONS.MANAGE_CUSTOMER_DEBTS) && (
                                             <button
                                                 onClick={() => setRepaymentSale(sale)}
                                                 className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition-colors text-xs font-bold flex items-center gap-1"
@@ -288,13 +322,15 @@ const CustomerView = ({
                         <option value="spent">Plus dépensé</option>
                         <option value="purchases">Plus d'achats</option>
                     </select>
-                    <button
-                        onClick={() => setShowCreateCustomerModal(true)}
-                        className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 whitespace-nowrap"
-                    >
-                        <Plus size={18} />
-                        Nouveau client
-                    </button>
+                    {hasPermission(userProfile, PERMISSIONS.MANAGE_CUSTOMERS) && (
+                        <button
+                            onClick={() => setShowCreateCustomerModal(true)}
+                            className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 whitespace-nowrap"
+                        >
+                            <Plus size={18} />
+                            Nouveau client
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -360,28 +396,30 @@ const CustomerView = ({
                                         </p>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200">
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setEditingCustomer(customer);
-                                        }}
-                                        className="flex-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
-                                    >
-                                        <Edit3 size={16} />
-                                        Modifier
-                                    </button>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setDeletingCustomer(customer);
-                                        }}
-                                        className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
-                                    >
-                                        <Trash2 size={16} />
-                                        Supprimer
-                                    </button>
-                                </div>
+                                {hasPermission(userProfile, PERMISSIONS.MANAGE_CUSTOMERS) && (
+                                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setEditingCustomer(customer);
+                                            }}
+                                            className="flex-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                                        >
+                                            <Edit3 size={16} />
+                                            Modifier
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setDeletingCustomer(customer);
+                                            }}
+                                            className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                                        >
+                                            <Trash2 size={16} />
+                                            Supprimer
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         );
                     })

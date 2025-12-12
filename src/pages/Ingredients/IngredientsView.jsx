@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Package, Plus, AlertTriangle, Edit3, Trash2, X, Save } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import { isIngredientLow, getIngredientAvailableStock } from '../../utils/helpers';
+import { PERMISSIONS, hasPermission } from '../../utils/permissions';
 
 const IngredientsView = ({
     ingredients,
     addIngredient,
     updateIngredient,
-    deleteIngredient
+    deleteIngredient,
+    userProfile
 }) => {
     const [showIngredientModal, setShowIngredientModal] = useState(false);
     const [editingIngredient, setEditingIngredient] = useState(null);
@@ -85,10 +87,12 @@ const IngredientsView = ({
                     <h1 className="text-xl lg:text-2xl font-bold text-slate-800">Ingrédients</h1>
                     <p className="text-sm text-slate-500">{totalIngredients} ingrédient{totalIngredients > 1 ? 's' : ''}</p>
                 </div>
-                <Button onClick={openAddModal} className="flex items-center gap-2">
-                    <Plus size={18} />
-                    Nouvel ingrédient
-                </Button>
+                {hasPermission(userProfile, PERMISSIONS.MANAGE_STOCK) && (
+                    <Button onClick={openAddModal} className="flex items-center gap-2">
+                        <Plus size={18} />
+                        Nouvel ingrédient
+                    </Button>
+                )}
             </div>
 
             {/* Stats Cards */}
@@ -143,10 +147,12 @@ const IngredientsView = ({
                         <Package size={48} className="mx-auto text-slate-300 mb-4" />
                         <h3 className="font-semibold text-slate-600 mb-2">Aucun ingrédient</h3>
                         <p className="text-sm text-slate-400 mb-4">Ajoutez vos premiers ingrédients pour créer des produits composés</p>
-                        <Button onClick={openAddModal} className="inline-flex items-center gap-2">
-                            <Plus size={18} />
-                            Ajouter un ingrédient
-                        </Button>
+                        {hasPermission(userProfile, PERMISSIONS.MANAGE_STOCK) && (
+                            <Button onClick={openAddModal} className="inline-flex items-center gap-2">
+                                <Plus size={18} />
+                                Ajouter un ingrédient
+                            </Button>
+                        )}
                     </div>
                 ) : (
                     ingredients.map(ingredient => {
@@ -210,22 +216,24 @@ const IngredientsView = ({
                                     </div>
                                 )}
 
-                                {/* Actions */}
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => openEditModal(ingredient)}
-                                        className="flex-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
-                                    >
-                                        <Edit3 size={16} />
-                                        Modifier
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(ingredient)}
-                                        className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
+                                {/* Actions - Only for Manage Stock */}
+                                {hasPermission(userProfile, PERMISSIONS.MANAGE_STOCK) && (
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => openEditModal(ingredient)}
+                                            className="flex-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                                        >
+                                            <Edit3 size={16} />
+                                            Modifier
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(ingredient)}
+                                            className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         );
                     })

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, FileText, Plus, Package, Edit3, Trash2, Download } from 'lucide-react';
 import { formatMoney, getProductStock } from '../../utils/helpers';
 import ProductFormModal from '../../components/modals/ProductFormModal';
+import { PERMISSIONS, hasPermission } from '../../utils/permissions';
 
 const InventoryView = ({
     products,
@@ -11,7 +12,8 @@ const InventoryView = ({
     addProduct,
     updateProduct,
     deleteProduct,
-    showNotification
+    showNotification,
+    userProfile
 }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
@@ -91,13 +93,15 @@ const InventoryView = ({
                         <FileText size={20} />
                         <span className="hidden sm:inline">Export CSV</span>
                     </button>
-                    <button
-                        onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
-                        className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 font-bold shadow-lg shadow-indigo-200"
-                    >
-                        <Plus size={20} />
-                        <span>Nouveau Produit</span>
-                    </button>
+                    {hasPermission(userProfile, PERMISSIONS.MANAGE_STOCK) && (
+                        <button
+                            onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
+                            className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 font-bold shadow-lg shadow-indigo-200"
+                        >
+                            <Plus size={20} />
+                            <span>Nouveau Produit</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -131,21 +135,23 @@ const InventoryView = ({
                             </div>
 
                             {/* Quick Stock Replenishment */}
-                            <div className="flex items-center gap-2 mb-3 py-2 border-t border-b border-slate-100">
-                                <span className="text-xs text-slate-500">Réapprovisionner:</span>
-                                {[5, 10, 20].map(qty => (
-                                    <button
-                                        key={qty}
-                                        onClick={() => {
-                                            updateProduct({ ...product, stock: product.stock + qty });
-                                            showNotification(`+${qty} ${product.name}`);
-                                        }}
-                                        className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded text-xs font-bold hover:bg-emerald-100 transition-colors"
-                                    >
-                                        +{qty}
-                                    </button>
-                                ))}
-                            </div>
+                            {hasPermission(userProfile, PERMISSIONS.MANAGE_INVENTORY) && (
+                                <div className="flex items-center gap-2 mb-3 py-2 border-t border-b border-slate-100">
+                                    <span className="text-xs text-slate-500">Réapprovisionner:</span>
+                                    {[5, 10, 20].map(qty => (
+                                        <button
+                                            key={qty}
+                                            onClick={() => {
+                                                updateProduct({ ...product, stock: product.stock + qty });
+                                                showNotification(`+${qty} ${product.name}`);
+                                            }}
+                                            className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded text-xs font-bold hover:bg-emerald-100 transition-colors"
+                                        >
+                                            +{qty}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
 
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -161,20 +167,22 @@ const InventoryView = ({
                                         QR
                                     </button>
                                 </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
-                                        className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors flex items-center gap-1"
-                                    >
-                                        <Edit3 size={14} />
-                                    </button>
-                                    <button
-                                        onClick={() => deleteProduct(product.id)}
-                                        className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors flex items-center gap-1"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
+                                {hasPermission(userProfile, PERMISSIONS.MANAGE_STOCK) && (
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
+                                            className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors flex items-center gap-1"
+                                        >
+                                            <Edit3 size={14} />
+                                        </button>
+                                        <button
+                                            onClick={() => deleteProduct(product.id)}
+                                            className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors flex items-center gap-1"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))
@@ -190,7 +198,9 @@ const InventoryView = ({
                             <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Prix vente</th>
                             <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Stock</th>
                             <th className="px-6 py-4 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">QR Code</th>
-                            <th className="px-6 py-4 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                            {hasPermission(userProfile, PERMISSIONS.MANAGE_STOCK) && (
+                                <th className="px-6 py-4 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                            )}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -251,24 +261,27 @@ const InventoryView = ({
                                             </button>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center justify-end gap-2">
-                                            <button
-                                                onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
-                                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                                title="Éditer"
-                                            >
-                                                <Edit3 size={16} />
-                                            </button>
-                                            <button
-                                                onClick={() => deleteProduct(product.id)}
-                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                title="Supprimer"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    </td>
+
+                                    {hasPermission(userProfile, PERMISSIONS.MANAGE_STOCK) && (
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button
+                                                    onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
+                                                    className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                                    title="Éditer"
+                                                >
+                                                    <Edit3 size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={() => deleteProduct(product.id)}
+                                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                    title="Supprimer"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    )}
                                 </tr>
                             );
                         })}

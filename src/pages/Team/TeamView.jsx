@@ -6,6 +6,7 @@ import { db } from '../../firebase';
 import { getRoleLabel } from '../../utils/permissions';
 
 import EmployeeEditorModal from '../../components/modals/EmployeeEditorModal';
+import { logAction, LOG_ACTIONS } from '../../utils/logger';
 
 const TeamView = ({ user, userProfile, showNotification, workspaceId }) => {
     const navigate = useNavigate();
@@ -59,8 +60,10 @@ const TeamView = ({ user, userProfile, showNotification, workspaceId }) => {
         try {
             if (isInvite) {
                 await deleteDoc(doc(db, 'workspace_invites', member.id)); // ID is email usually
+                logAction(db, workspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.USER_REMOVED, `Invitation annulée: ${member.email}`, { memberId: member.id });
             } else {
                 await deleteDoc(doc(db, 'users_profiles', member.id));
+                logAction(db, workspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.USER_REMOVED, `Membre retiré: ${member.email}`, { memberId: member.id });
             }
             showNotification("Membre retiré");
             fetchTeamMembers();
@@ -145,8 +148,8 @@ const TeamView = ({ user, userProfile, showNotification, workspaceId }) => {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <span className={`text-xs px-2 py-0.5 rounded-full font-bold uppercase ${member.role === 'admin'
-                                                            ? 'bg-purple-100 text-purple-700'
-                                                            : 'bg-slate-100 text-slate-600'
+                                                        ? 'bg-purple-100 text-purple-700'
+                                                        : 'bg-slate-100 text-slate-600'
                                                         }`}>
                                                         {getRoleLabel(member.role)}
                                                     </span>

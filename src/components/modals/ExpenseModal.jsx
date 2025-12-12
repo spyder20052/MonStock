@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { X, Save, Loader, DollarSign, Calendar, Tag, FileText } from 'lucide-react';
 import { addDoc, updateDoc, doc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { logAction, LOG_ACTIONS } from '../../utils/logger';
 
 const EXPENSE_CATEGORIES = [
     'Loyer',
     'Électricité/Eau',
     'Salaires',
+    'Matériel',
     'Approvisionnement (Transport)',
     'Entretien/Réparations',
     'Marketing/Pub',
@@ -15,7 +17,7 @@ const EXPENSE_CATEGORIES = [
     'Autre'
 ];
 
-const ExpenseModal = ({ isOpen, onClose, expenseToEdit, workspaceId, showNotification }) => {
+const ExpenseModal = ({ isOpen, onClose, expenseToEdit, workspaceId, showNotification, user, userProfile }) => {
     const [formData, setFormData] = useState({
         description: '',
         amount: '',
@@ -24,22 +26,36 @@ const ExpenseModal = ({ isOpen, onClose, expenseToEdit, workspaceId, showNotific
     });
     const [saving, setSaving] = useState(false);
 
+    // Reset form when modal opens or when editing expense changes
     useEffect(() => {
-        if (expenseToEdit) {
-            setFormData({
-                description: expenseToEdit.description,
-                amount: expenseToEdit.amount,
-                category: expenseToEdit.category,
-                date: expenseToEdit.date.split('T')[0]
-            });
+        if (isOpen) {
+            if (expenseToEdit) {
+                setFormData({
+                    description: expenseToEdit.description || '',
+                    amount: expenseToEdit.amount || '',
+                    category: expenseToEdit.category || 'Autre',
+                    date: expenseToEdit.date ? expenseToEdit.date.split('T')[0] : new Date().toISOString().split('T')[0]
+                });
+            } else {
+                // Reset form for new expense
+                setFormData({
+                    description: '',
+                    amount: '',
+                    category: 'Autre',
+                    date: new Date().toISOString().split('T')[0]
+                });
+            }
         }
-    }, [expenseToEdit]);
+    }, [isOpen, expenseToEdit]);
 
     if (!isOpen) return null;
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSaving(true);
+
+        console.log("Submitting expense with data:", formData);
+        console.log("Workspace ID:", workspaceId);
 
         try {
             const data = {
@@ -50,18 +66,29 @@ const ExpenseModal = ({ isOpen, onClose, expenseToEdit, workspaceId, showNotific
                 updatedAt: serverTimestamp()
             };
 
+            console.log("Prepared data for Firestore:", data);
+
             if (expenseToEdit) {
                 await updateDoc(doc(db, 'users', workspaceId, 'expenses', expenseToEdit.id), data);
+                // Log the update action
+                if (user && userProfile) {
+                    await logAction(db, workspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.EXPENSE_UPDATED, `Dépense modifiée: ${data.description} (${data.amount} FCFA)`, { expenseId: expenseToEdit.id });
+                }
                 showNotification('Dépense modifiée');
             } else {
                 data.createdAt = serverTimestamp();
-                await addDoc(collection(db, 'users', workspaceId, 'expenses'), data);
+                const docRef = await addDoc(collection(db, 'users', workspaceId, 'expenses'), data);
+                console.log("Successfully created expense with ID:", docRef.id);
+                // Log the creation action
+                if (user && userProfile) {
+                    await logAction(db, workspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.EXPENSE_CREATED, `Dépense créée: ${data.description} (${data.amount} FCFA)`, { expenseId: docRef.id });
+                }
                 showNotification('Dépense ajoutée');
             }
             onClose();
         } catch (error) {
             console.error("Error saving expense:", error);
-            showNotification('error', "Erreur lors de l'enregistrement");
+            showNotification("Erreur lors de l'enregistrement", 'error');
         } finally {
             setSaving(false);
         }

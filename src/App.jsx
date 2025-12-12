@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, signOut, updateProfile, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { ROLES, PERMISSIONS, hasPermission } from './utils/permissions';
+import { logAction, LOG_ACTIONS } from './utils/logger';
 import DashboardView from './pages/Dashboard/DashboardView';
 import AnalyticsView from './pages/Analytics/AnalyticsView';
 import POSView from './pages/POS/POSView';
@@ -23,6 +24,7 @@ import ProfileView from './pages/Profile/ProfileView';
 import TeamView from './pages/Team/TeamView';
 import ExpensesView from './pages/Expenses/ExpensesView';
 import FinanceView from './pages/Analytics/FinanceView'; // New Import
+import ActivityLogView from './pages/Admin/ActivityLogView';
 import CreateCustomerModal from './components/modals/CreateCustomerModal';
 import CustomerSelectorModal from './components/modals/CustomerSelectorModal';
 import ScannerModal from './components/modals/ScannerModal';
@@ -94,97 +96,88 @@ export default function App() {
     return children;
   };
 
+  // 1. Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-
-      if (u) {
-        // Fetch User Profile (Role & Workspace)
-        try {
-          const profileRef = doc(db, 'users_profiles', u.uid);
-          const profileSnap = await getDoc(profileRef);
-
-          if (profileSnap.exists()) {
-            const data = profileSnap.data();
-            setUserProfile(data);
-            setCurrentWorkspaceId(data.ownerId); // Employee access admin's data
-          } else {
-            // No profile found.
-            // Check for pending invites first
-            let newProfile = null;
-            try {
-              if (u.email) {
-                const inviteRef = doc(db, 'workspace_invites', u.email.toLowerCase().trim());
-                const inviteSnap = await getDoc(inviteRef);
-
-                if (inviteSnap.exists()) {
-                  const inviteData = inviteSnap.data();
-                  console.log("Found invite:", inviteData);
-
-                  // Create Profile from Invite
-                  newProfile = {
-                    uid: u.uid,
-                    email: u.email,
-                    role: inviteData.role || 'manager_stock',
-                    ownerId: inviteData.ownerId, // Join the workspace
-                    customPermissions: inviteData.customPermissions || {},
-                    createdAt: serverTimestamp(),
-                    joinedAt: serverTimestamp()
-                  };
-
-                  // Delete the invite (claimed)
-                  await deleteDoc(inviteRef);
-                  showNotification('success', "Vous avez rejoint l'équipe !");
-                }
-              }
-            } catch (invErr) {
-              console.error("Error checking invites:", invErr);
-            }
-
-            // If no invite, create default Admin profile (New Workspace)
-            if (!newProfile) {
-              console.log("Creating default admin profile for new/existing user");
-              newProfile = {
-                uid: u.uid,
-                email: u.email,
-                role: 'admin',
-                ownerId: u.uid, // Admin owns their data
-                createdAt: serverTimestamp()
-              };
-            }
-
-            await setDoc(profileRef, newProfile);
-            setUserProfile(newProfile);
-            setCurrentWorkspaceId(newProfile.ownerId);
-          }
-        } catch (error) {
-          console.error("Error fetching user profile:", error);
-          // Fallback for existing users if profile fails: Force Admin Mode
-          const fallbackProfile = {
-            uid: u.uid,
-            email: u.email,
-            role: 'admin',
-            ownerId: u.uid,
-            createdAt: serverTimestamp() // or now
-          };
-          setUserProfile(fallbackProfile);
-          setCurrentWorkspaceId(u.uid);
-          showNotification('error', "Erreur profil - Mode Admin de secours activé");
-        }
-
-        // Load customer management setting
-        const savedSetting = localStorage.getItem(`customerMgmt_${u.uid}`);
-        setCustomerManagementEnabled(savedSetting === 'true');
-      } else {
-        // Logout cleanup
+      if (!u) {
         setUserProfile(null);
         setCurrentWorkspaceId(null);
         setCustomerManagementEnabled(false);
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
+
+  // 2. Profile Listener (Real-time updates)
+  useEffect(() => {
+    if (!user) return; // Wait for user to be logged in
+
+    const profileRef = doc(db, 'users_profiles', user.uid);
+
+    const unsubProfile = onSnapshot(profileRef, async (profileSnap) => {
+      if (profileSnap.exists()) {
+        const data = profileSnap.data();
+        setUserProfile(data);
+        setCurrentWorkspaceId(data.ownerId);
+
+        // Load settings
+        const savedSetting = localStorage.getItem(`customerMgmt_${user.uid}`);
+        setCustomerManagementEnabled(savedSetting === 'true');
+
+        setLoading(false);
+      } else {
+        // Profile doesn't exist? Try to create it (Invite or New Owner)
+        try {
+          // Check for invite
+          let newProfile = null;
+          if (user.email) {
+            const inviteRef = doc(db, 'workspace_invites', user.email.toLowerCase().trim());
+            const inviteSnap = await getDoc(inviteRef);
+
+            if (inviteSnap.exists()) {
+              const inviteData = inviteSnap.data();
+              newProfile = {
+                uid: user.uid,
+                email: user.email,
+                role: inviteData.role || 'manager_stock',
+                ownerId: inviteData.ownerId,
+                customPermissions: inviteData.customPermissions || {},
+                createdAt: serverTimestamp(),
+                joinedAt: serverTimestamp()
+              };
+              await deleteDoc(inviteRef);
+              showNotification('success', "Vous avez rejoint l'équipe !");
+            }
+          }
+
+          if (!newProfile) {
+            // Default Owner Profile
+            newProfile = {
+              uid: user.uid,
+              email: user.email,
+              role: ROLES.ADMIN,
+              ownerId: user.uid,
+              createdAt: serverTimestamp()
+            };
+          }
+
+          // Create the profile (will trigger snapshot again)
+          await setDoc(profileRef, newProfile);
+
+        } catch (error) {
+          console.error("Error creating profile:", error);
+          setLoading(false); // Stop loading even on error to show UI (empty/error state)
+        }
+      }
+    }, (error) => {
+      console.error("Profile snapshot error:", error);
+      setLoading(false);
+    });
+
+    return () => unsubProfile();
+  }, [user]);
 
   // --- Syncronisation Firestore ---
 
@@ -370,6 +363,9 @@ export default function App() {
       // On utilise l'ID généré par Firestore pour le QR code
       const docRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'products'), newProduct);
 
+      // Log action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.PRODUCT_CREATED, `Produit créé: ${newProduct.name}`, { productId: docRef.id });
+
       showNotification("Produit créé avec QR Code associé");
     } catch (e) {
       console.error(e);
@@ -382,6 +378,10 @@ export default function App() {
     try {
       const ref = doc(db, 'users', currentWorkspaceId, 'products', productData.id);
       await updateDoc(ref, productData);
+
+      // Log action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.PRODUCT_UPDATED, `Produit mis à jour: ${productData.name}`, { productId: productData.id });
+
       showNotification("Produit mis à jour");
     } catch (e) {
       console.error(e);
@@ -393,6 +393,10 @@ export default function App() {
     if (!user) return;
     try {
       await deleteDoc(doc(db, 'users', currentWorkspaceId, 'products', id));
+
+      // Log action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.PRODUCT_DELETED, `Produit supprimé (ID: ${id})`, { productId: id });
+
       showNotification("Produit supprimé");
     } catch (e) {
       console.error(e);
@@ -414,6 +418,10 @@ export default function App() {
       };
       const docRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'customers'), newCustomer);
       const customer = { id: docRef.id, ...newCustomer };
+
+      // Log action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.CUSTOMER_CREATED, `Client créé: ${newCustomer.name}`, { customerId: docRef.id });
+
       showNotification("Client créé");
       return customer;
     } catch (e) {
@@ -430,6 +438,10 @@ export default function App() {
       if (data.debt !== undefined) customerData.debt = Number(data.debt);
 
       await updateDoc(doc(db, 'users', currentWorkspaceId, 'customers', id), customerData);
+
+      // Log action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.CUSTOMER_UPDATED, `Client modifié: ${data.name || 'Inconnu'}`, { customerId: id });
+
       showNotification("Client mis à jour");
     } catch (e) {
       console.error(e);
@@ -441,6 +453,10 @@ export default function App() {
     if (!user) return;
     try {
       await deleteDoc(doc(db, 'users', currentWorkspaceId, 'customers', id));
+
+      // Log action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.CUSTOMER_DELETED, `Client supprimé (ID: ${id})`, { customerId: id });
+
       showNotification("Client supprimé");
     } catch (e) {
       console.error(e);
@@ -461,7 +477,11 @@ export default function App() {
       usagesPerUnit: Number(data.usagesPerUnit) || 20,
       minFullUnits: Number(data.minFullUnits) || 2,
     };
-    await addDoc(collection(db, 'users', currentWorkspaceId, 'ingredients'), ingredientData);
+    const docRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'ingredients'), ingredientData);
+
+    // Log action
+    await logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.INGREDIENT_CREATED, `Ingrédient créé: ${data.name}`, { ingredientId: docRef.id });
+
     showNotification("Ingrédient ajouté");
   };
 
@@ -470,12 +490,20 @@ export default function App() {
     const ingredientData = { ...data };
     if (ingredientData.stock) ingredientData.stock = Number(ingredientData.stock);
     await updateDoc(doc(db, 'users', currentWorkspaceId, 'ingredients', id), data);
+
+    // Log action
+    await logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.INGREDIENT_UPDATED, `Ingrédient mis à jour: ${data.name}`, { ingredientId: id });
+
     showNotification("Ingrédient mis à jour");
   };
 
   const deleteIngredient = async (id) => {
     if (!user) return;
     await deleteDoc(doc(db, 'users', currentWorkspaceId, 'ingredients', id));
+
+    // Log action
+    await logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.INGREDIENT_DELETED, `Ingrédient supprimé (ID: ${id})`, { ingredientId: id });
+
     showNotification("Ingrédient supprimé");
   };
 
@@ -596,6 +624,9 @@ export default function App() {
           }]
       };
       const saleRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'sales'), saleData);
+
+      // Log action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.SALE_CREATED, `Vente enregistrée: ${formatMoney(totalSale)} (${cart.length} articles)`, { saleId: saleRef.id, total: totalSale });
 
       // 2. Mettre à jour les stocks (produits simples) ou décrémenter ingrédients (produits composés)
       for (const item of cart) {
@@ -781,6 +812,14 @@ export default function App() {
               <span className="font-medium">Rapport P&L</span>
             </Link>
           )}
+
+          {/* Activity Log Link (Admin Only) */}
+          {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
+            <Link to="/logs" className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${activeTab === 'logs' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <Clock size={20} />
+              <span className="font-medium">Journal d'Activité</span>
+            </Link>
+          )}
         </nav>
 
 
@@ -878,6 +917,7 @@ export default function App() {
               updateProduct={updateProduct}
               deleteProduct={deleteProduct}
               showNotification={showNotification}
+              userProfile={userProfile}
             /> : <Navigate to="/dashboard" replace />} />
             <Route path="/sales_history" element={hasPermission(userProfile, PERMISSIONS.VIEW_SALES_HISTORY) ? <HistoryView
               sales={sales}
@@ -898,18 +938,22 @@ export default function App() {
               setRepaymentSale={setRepaymentSale}
               setReturnChangeCustomer={setReturnChangeCustomer}
               showNotification={showNotification}
+              userProfile={userProfile}
             /> : <Navigate to="/dashboard" replace />} />
             <Route path="/ingredients" element={hasPermission(userProfile, PERMISSIONS.VIEW_STOCK) ? <IngredientsView
               ingredients={ingredients}
               addIngredient={addIngredient}
               updateIngredient={updateIngredient}
               deleteIngredient={deleteIngredient}
+              userProfile={userProfile}
             /> : <Navigate to="/dashboard" replace />} />
             <Route path="/expenses" element={
               <ProtectedRoute permission={PERMISSIONS.VIEW_FINANCIAL_ANALYTICS}>
                 <ExpensesView
                   workspaceId={currentWorkspaceId}
                   showNotification={showNotification}
+                  user={user}
+                  userProfile={userProfile}
                 />
               </ProtectedRoute>
             } />
@@ -935,6 +979,10 @@ export default function App() {
               workspaceId={currentWorkspaceId}
               showNotification={showNotification}
             /> : <Navigate to="/profile" replace />} />
+            <Route path="/logs" element={hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) ? <ActivityLogView
+              userProfile={userProfile}
+              workspaceId={currentWorkspaceId}
+            /> : <Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -1222,6 +1270,7 @@ export default function App() {
             onClose={() => setRepaymentCustomer(null)}
             db={db}
             user={user}
+            userProfile={userProfile}
             workspaceId={currentWorkspaceId}
             showNotification={showNotification}
           />
@@ -1235,6 +1284,7 @@ export default function App() {
           sale={repaymentSale}
           onClose={() => setRepaymentSale(null)}
           user={user}
+          userProfile={userProfile}
           workspaceId={currentWorkspaceId}
           showNotification={showNotification}
         />

@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import ExpenseModal from '../../components/modals/ExpenseModal';
 
-const ExpensesView = ({ workspaceId, showNotification }) => {
+const ExpensesView = ({ workspaceId, showNotification, user, userProfile }) => {
     const [expenses, setExpenses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -213,6 +213,8 @@ const ExpensesView = ({ workspaceId, showNotification }) => {
                     expenseToEdit={editingExpense}
                     workspaceId={workspaceId}
                     showNotification={showNotification}
+                    user={user}
+                    userProfile={userProfile}
                 />
             )}
         </div>

@@ -3,8 +3,9 @@ import { DollarSign, X } from 'lucide-react';
 import { doc, updateDoc, increment, addDoc, collection, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { formatMoney } from '../../utils/helpers';
+import { logAction, LOG_ACTIONS } from '../../utils/logger';
 
-const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null, workspaceId }) => {
+const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null, workspaceId, userProfile }) => {
     const [amount, setAmount] = useState('');
     const [method, setMethod] = useState('cash');
 
@@ -47,6 +48,18 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
             }
 
             await batch.commit();
+
+            // Log the repayment action
+            if (user && userProfile) {
+                await logAction(
+                    db,
+                    workspaceId,
+                    { uid: user.uid, ...userProfile },
+                    LOG_ACTIONS.DEBT_REPAID,
+                    `Remboursement de ${formatMoney(repayAmount)} par ${customer.name}${sale ? ` (Vente #${sale.id.slice(-6)})` : ''}`,
+                    { customerId: customer.id, amount: repayAmount, saleId: sale?.id }
+                );
+            }
 
             showNotification("Remboursement enregistré !", "success");
             onClose();

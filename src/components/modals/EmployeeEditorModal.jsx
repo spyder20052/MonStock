@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Save, Shield, Check, AlertTriangle } from 'lucide-react';
 import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { PERMISSIONS, ROLES, getRoleLabel } from '../../utils/permissions';
+import { PERMISSIONS, ROLES, getRoleLabel, PERMISSION_METADATA } from '../../utils/permissions';
 
 const EmployeeEditorModal = ({ member, onClose, workspaceId, showNotification, onUpdate }) => {
     const [role, setRole] = useState(member?.role || ROLES.MANAGER_STOCK);
@@ -152,14 +152,25 @@ const EmployeeEditorModal = ({ member, onClose, workspaceId, showNotification, o
                                         <div className="space-y-2">
                                             {perms.map(perm => {
                                                 const status = customPermissions[perm]; // true, false, or undefined
+                                                const metadata = PERMISSION_METADATA[perm] || { label: perm, description: '' };
+
                                                 return (
-                                                    <div key={perm} className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                                        <span className="text-sm font-medium text-slate-700">{perm}</span>
-                                                        <div className="flex bg-white rounded-lg border border-slate-200 p-1">
+                                                    <div key={perm} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-100 hover:bg-slate-100 transition-colors group relative">
+                                                        <div className="flex-1 min-w-0 pr-4">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm font-semibold text-slate-700">{metadata.label}</span>
+                                                            </div>
+                                                            <p className="text-xs text-slate-500 mt-0.5 truncate">{metadata.description}</p>
+                                                        </div>
+
+                                                        <div className="flex bg-white rounded-lg border border-slate-200 p-1 shadow-sm shrink-0">
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setCustomPermissions(p => ({ ...p, [perm]: false }))}
-                                                                className={`px-3 py-1 text-xs font-bold rounded ${status === false ? 'bg-red-100 text-red-700' : 'text-slate-400 hover:text-slate-600'}`}
+                                                                className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${status === false
+                                                                    ? 'bg-red-100 text-red-700 shadow-sm'
+                                                                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
+                                                                title="Refuser explicitement"
                                                             >
                                                                 Non
                                                             </button>
@@ -170,14 +181,20 @@ const EmployeeEditorModal = ({ member, onClose, workspaceId, showNotification, o
                                                                     delete np[perm];
                                                                     setCustomPermissions(np);
                                                                 }}
-                                                                className={`px-3 py-1 text-xs font-bold rounded ${status === undefined ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'}`}
+                                                                className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${status === undefined
+                                                                    ? 'bg-slate-100 text-slate-800 shadow-sm'
+                                                                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
+                                                                title="Utiliser la permission par défaut du rôle"
                                                             >
                                                                 Auto
                                                             </button>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setCustomPermissions(p => ({ ...p, [perm]: true }))}
-                                                                className={`px-3 py-1 text-xs font-bold rounded ${status === true ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:text-slate-600'}`}
+                                                                className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${status === true
+                                                                    ? 'bg-emerald-100 text-emerald-700 shadow-sm'
+                                                                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
+                                                                title="Accorder explicitement"
                                                             >
                                                                 Oui
                                                             </button>
