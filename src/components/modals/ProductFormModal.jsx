@@ -1,12 +1,14 @@
+
 import React, { useState } from 'react';
 import { X, Plus, Package } from 'lucide-react';
-import { getIngredientAvailableStock, isIngredientLow } from '../../utils/helpers';
+import { getIngredientAvailableStock, isIngredientLow, formatMoney } from '../../utils/helpers';
 
 const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
     const [formData, setFormData] = useState({
         name: editingProduct?.name || '',
         cost: editingProduct?.cost || 0,
         price: editingProduct?.price || 0,
+        purchasePrice: editingProduct?.purchasePrice || 0,
         stock: editingProduct?.stock || 0,
         minStock: editingProduct?.minStock || 5,
         isComposite: editingProduct?.isComposite || false,
@@ -67,6 +69,7 @@ const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
             name: formData.name,
             cost: Number(formData.cost),
             price: Number(formData.price),
+            purchasePrice: Number(formData.purchasePrice || 0),
             isComposite: formData.isComposite,
         };
 
@@ -112,22 +115,33 @@ const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
                     {/* Prix */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Prix Achat</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Coût d'achat (FCFA)</label>
                             <input
                                 type="number"
                                 min="0"
-                                value={formData.cost}
-                                onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                                value={formData.purchasePrice || ''}
+                                onChange={(e) => setFormData({ ...formData, purchasePrice: Number(e.target.value) })}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                placeholder="0"
                             />
+                            {/* Margin Indicator */}
+                            {formData.price > 0 && (
+                                <p className={`text - xs mt - 1 font - medium ${(formData.price - (formData.purchasePrice || 0)) > 0
+                                        ? 'text-emerald-600'
+                                        : 'text-red-500'
+                                    } `}>
+                                    Marge: {formatMoney(formData.price - (formData.purchasePrice || 0))} (
+                                    {Math.round(((formData.price - (formData.purchasePrice || 0)) / formData.price) * 100)}%)
+                                </p>
+                            )}
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Prix Vente *</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Prix Vente (FCFA) *</label>
                             <input
                                 type="number"
                                 min="0"
                                 value={formData.price}
-                                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                                onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
                                 required
                             />
@@ -144,9 +158,9 @@ const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
                             <button
                                 type="button"
                                 onClick={() => setFormData({ ...formData, isComposite: !formData.isComposite })}
-                                className={`relative w-14 h-7 rounded-full transition-colors ${formData.isComposite ? 'bg-purple-600' : 'bg-slate-300'}`}
+                                className={`relative w - 14 h - 7 rounded - full transition - colors ${formData.isComposite ? 'bg-purple-600' : 'bg-slate-300'} `}
                             >
-                                <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${formData.isComposite ? 'translate-x-7' : ''}`} />
+                                <span className={`absolute top - 1 left - 1 w - 5 h - 5 bg - white rounded - full transition - transform ${formData.isComposite ? 'translate-x-7' : ''} `} />
                             </button>
                         </div>
                     </div>
@@ -249,16 +263,16 @@ const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
                                             const isLow = ingredient && isIngredientLow(ingredient);
 
                                             return (
-                                                <div key={item.ingredientId} className={`bg-white rounded-lg p-3 border ${isLow ? 'border-red-200 bg-red-50/30' : 'border-slate-100'}`}>
+                                                <div key={item.ingredientId} className={`bg - white rounded - lg p - 3 border ${isLow ? 'border-red-200 bg-red-50/30' : 'border-slate-100'} `}>
                                                     <div className="flex items-center justify-between">
                                                         <div className="flex items-center gap-2">
-                                                            <span className={`w-2 h-2 rounded-full ${isLow ? 'bg-red-500' : 'bg-green-500'}`} />
+                                                            <span className={`w - 2 h - 2 rounded - full ${isLow ? 'bg-red-500' : 'bg-green-500'} `} />
                                                             <div>
                                                                 <span className="font-medium text-sm">{item.ingredientName}</span>
-                                                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${ingredient?.trackingType === 'quantity'
-                                                                    ? 'bg-blue-100 text-blue-600'
-                                                                    : 'bg-purple-100 text-purple-600'
-                                                                    }`}>
+                                                                <span className={`ml - 2 text - xs px - 1.5 py - 0.5 rounded ${ingredient?.trackingType === 'quantity'
+                                                                        ? 'bg-blue-100 text-blue-600'
+                                                                        : 'bg-purple-100 text-purple-600'
+                                                                    } `}>
                                                                     {ingredient?.trackingType === 'quantity' ? 'quantité' : 'usage'}
                                                                 </span>
                                                             </div>

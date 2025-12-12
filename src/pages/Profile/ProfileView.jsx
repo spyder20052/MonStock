@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Check, AlertTriangle, User, Mail, Loader, Save, Phone, Lock, Eye, EyeOff, Users } from 'lucide-react';
 import { updateProfile, updateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { writeBatch, doc } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
+import { getRoleLabel, hasPermission, PERMISSIONS } from '../../utils/permissions';
 
 const ProfileView = ({
     user,
+    userProfile,
     products,
     sales,
     showNotification,
     customerManagementEnabled,
     setCustomerManagementEnabled,
-    customers = [] // Add customers prop
+    customers = [],
+    workspaceId
 }) => {
+    const navigate = useNavigate();
     const [profileData, setProfileData] = useState({
         displayName: user?.displayName || '',
         email: user?.email || '',
@@ -36,15 +41,15 @@ const ProfileView = ({
             const batch = writeBatch(db);
 
             if (type === 'products' || type === 'all') {
-                products.forEach(p => batch.delete(doc(db, 'users', user.uid, 'products', p.id)));
+                products.forEach(p => batch.delete(doc(db, 'users', workspaceId, 'products', p.id)));
             }
 
             if (type === 'sales' || type === 'all') {
-                sales.forEach(s => batch.delete(doc(db, 'users', user.uid, 'sales', s.id)));
+                sales.forEach(s => batch.delete(doc(db, 'users', workspaceId, 'sales', s.id)));
 
                 // Reset customer statistics when clearing sales
                 customers.forEach(customer => {
-                    batch.update(doc(db, 'users', user.uid, 'customers', customer.id), {
+                    batch.update(doc(db, 'users', workspaceId, 'customers', customer.id), {
                         totalPurchases: 0,
                         totalSpent: 0,
                         totalItems: 0,
@@ -146,6 +151,20 @@ const ProfileView = ({
                     <div className="flex-1 min-w-0">
                         <h2 className="text-xl font-bold text-slate-800 truncate">{user?.displayName || 'Utilisateur'}</h2>
                         <p className="text-sm text-slate-500 truncate">{user?.email}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                                {getRoleLabel(userProfile?.role)}
+                            </span>
+                            {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
+                                <button
+                                    onClick={() => navigate('/team')}
+                                    className="text-xs bg-slate-800 text-white px-2 py-0.5 rounded flex items-center gap-1 hover:bg-slate-700"
+                                >
+                                    <Users size={10} />
+                                    Gérer l'équipe
+                                </button>
+                            )}
+                        </div>
                         <p className="text-xs text-slate-400 mt-1">Membre depuis {user?.metadata?.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) : 'récemment'}</p>
                     </div>
                 </div>
@@ -154,8 +173,8 @@ const ProfileView = ({
             {/* Message */}
             {message && (
                 <div className={`p-4 rounded-xl flex items-center gap-3 ${message.type === 'success'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'bg-red-50 text-red-700 border border-red-200'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-red-50 text-red-700 border border-red-200'
                     }`}>
                     {message.type === 'success' ? <Check size={18} /> : <AlertTriangle size={18} />}
                     <span className="text-sm font-medium">{message.text}</span>

@@ -4,7 +4,7 @@ import { doc, updateDoc, increment, arrayUnion } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { formatMoney } from '../../utils/helpers';
 
-const ChangeRepaymentModal = ({ customer, onClose, user, showNotification }) => {
+const ChangeRepaymentModal = ({ customer, onClose, user, showNotification, workspaceId }) => {
     const [amount, setAmount] = useState('');
 
     const maxAmount = customer.changeOwed || 0;
@@ -14,7 +14,7 @@ const ChangeRepaymentModal = ({ customer, onClose, user, showNotification }) => 
         if (!returnAmount || returnAmount <= 0 || returnAmount > maxAmount) return;
 
         try {
-            const customerRef = doc(db, 'users', user.uid, 'customers', customer.id);
+            const customerRef = doc(db, 'users', workspaceId, 'customers', customer.id);
 
             await updateDoc(customerRef, {
                 changeOwed: increment(-returnAmount),

@@ -4,7 +4,7 @@ import { doc, updateDoc, increment, addDoc, collection, writeBatch } from 'fireb
 import { db } from '../../firebase';
 import { formatMoney } from '../../utils/helpers';
 
-const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null }) => {
+const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null, workspaceId }) => {
     const [amount, setAmount] = useState('');
     const [method, setMethod] = useState('cash');
 
@@ -21,14 +21,14 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
             const batch = writeBatch(db);
 
             // 1. Update customer debt
-            const customerRef = doc(db, 'users', user.uid, 'customers', customer.id);
+            const customerRef = doc(db, 'users', workspaceId, 'customers', customer.id);
             batch.update(customerRef, {
                 debt: increment(-repayAmount)
             });
 
             // 2. Update sale with payment
             if (sale) {
-                const saleRef = doc(db, 'users', user.uid, 'sales', sale.id);
+                const saleRef = doc(db, 'users', workspaceId, 'sales', sale.id);
 
                 // Add payment to payments array
                 const payment = {

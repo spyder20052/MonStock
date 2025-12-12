@@ -8,9 +8,10 @@ import {
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, addDoc, updateDoc,
-  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment, enableIndexedDbPersistence, arrayUnion
+  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment, enableIndexedDbPersistence, arrayUnion, getDoc, setDoc
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, signOut, updateProfile, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import { ROLES, PERMISSIONS, hasPermission } from './utils/permissions';
 import DashboardView from './pages/Dashboard/DashboardView';
 import AnalyticsView from './pages/Analytics/AnalyticsView';
 import POSView from './pages/POS/POSView';
@@ -19,6 +20,10 @@ import HistoryView from './pages/History/HistoryView';
 import CustomerView from './pages/Customers/CustomerView';
 import IngredientsView from './pages/Ingredients/IngredientsView';
 import ProfileView from './pages/Profile/ProfileView';
+import TeamView from './pages/Team/TeamView';
+import ExpensesView from './pages/Expenses/ExpensesView';
+import FinanceView from './pages/Analytics/FinanceView'; // New Import
+import CreateCustomerModal from './components/modals/CreateCustomerModal';
 import CustomerSelectorModal from './components/modals/CustomerSelectorModal';
 import ScannerModal from './components/modals/ScannerModal';
 import PaymentModal from './components/modals/PaymentModal';
@@ -29,39 +34,12 @@ import Button from './components/ui/Button';
 import AuthPage from './components/AuthPage';
 
 
+
 import { formatMoney, formatDate, getProductStock, getAvailableProductStock, isIngredientLow, getIngredientAvailableStock } from './utils/helpers';
-// --- Configuration Firebase & Utilitaires ---
-
-const firebaseConfig = {
-  apiKey: "AIzaSyDbUDhUSR2Jm-HD8EDFoIyyM2kmtKZQvzs",
-  authDomain: "monstock-a8cbb.firebaseapp.com",
-  projectId: "monstock-a8cbb",
-  storageBucket: "monstock-a8cbb.firebasestorage.app",
-  messagingSenderId: "710172228698",
-  appId: "1:710172228698:web:69a14359db84087f106c63",
-  measurementId: "G-8QWJ0K4G55"
-};
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-// Enable offline persistence
-try {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code == 'failed-precondition') {
-      console.log('Persistence failed: Multiple tabs open');
-    } else if (err.code == 'unimplemented') {
-      console.log('Persistence not supported by browser');
-    }
-  });
-} catch (err) {
-  console.log('Persistence error:', err);
-}
+import { Routes, Route, useNavigate, useLocation, Navigate, Link } from 'react-router-dom';
+import { db, auth } from './firebase';
 
 const appId = 'mon-stock-01';
-
-
-import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -80,6 +58,8 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState(null); // Role & Permissions
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null); // Owner/Company ID to fetch data from
   const [showMobileCart, setShowMobileCart] = useState(false);
 
   // Customer Management States
@@ -104,18 +84,104 @@ export default function App() {
 
   // --- Authentification & Initialisation ---
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
+  // Helper Component for Route Protection
+  const ProtectedRoute = ({ permission, children }) => {
+    if (loading) return <div className="h-screen flex items-center justify-center"><Loader className="animate-spin" /></div>;
+    if (!user) return <Navigate to="/" replace />;
+    if (permission && !hasPermission(userProfile, permission)) {
+      return <Navigate to="/dashboard" replace />;
+    }
+    return children;
+  };
 
-      // Load customer management setting after user is loaded
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+
       if (u) {
+        // Fetch User Profile (Role & Workspace)
+        try {
+          const profileRef = doc(db, 'users_profiles', u.uid);
+          const profileSnap = await getDoc(profileRef);
+
+          if (profileSnap.exists()) {
+            const data = profileSnap.data();
+            setUserProfile(data);
+            setCurrentWorkspaceId(data.ownerId); // Employee access admin's data
+          } else {
+            // No profile found.
+            // Check for pending invites first
+            let newProfile = null;
+            try {
+              if (u.email) {
+                const inviteRef = doc(db, 'workspace_invites', u.email.toLowerCase().trim());
+                const inviteSnap = await getDoc(inviteRef);
+
+                if (inviteSnap.exists()) {
+                  const inviteData = inviteSnap.data();
+                  console.log("Found invite:", inviteData);
+
+                  // Create Profile from Invite
+                  newProfile = {
+                    uid: u.uid,
+                    email: u.email,
+                    role: inviteData.role || 'manager_stock',
+                    ownerId: inviteData.ownerId, // Join the workspace
+                    customPermissions: inviteData.customPermissions || {},
+                    createdAt: serverTimestamp(),
+                    joinedAt: serverTimestamp()
+                  };
+
+                  // Delete the invite (claimed)
+                  await deleteDoc(inviteRef);
+                  showNotification('success', "Vous avez rejoint l'équipe !");
+                }
+              }
+            } catch (invErr) {
+              console.error("Error checking invites:", invErr);
+            }
+
+            // If no invite, create default Admin profile (New Workspace)
+            if (!newProfile) {
+              console.log("Creating default admin profile for new/existing user");
+              newProfile = {
+                uid: u.uid,
+                email: u.email,
+                role: 'admin',
+                ownerId: u.uid, // Admin owns their data
+                createdAt: serverTimestamp()
+              };
+            }
+
+            await setDoc(profileRef, newProfile);
+            setUserProfile(newProfile);
+            setCurrentWorkspaceId(newProfile.ownerId);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+          // Fallback for existing users if profile fails: Force Admin Mode
+          const fallbackProfile = {
+            uid: u.uid,
+            email: u.email,
+            role: 'admin',
+            ownerId: u.uid,
+            createdAt: serverTimestamp() // or now
+          };
+          setUserProfile(fallbackProfile);
+          setCurrentWorkspaceId(u.uid);
+          showNotification('error', "Erreur profil - Mode Admin de secours activé");
+        }
+
+        // Load customer management setting
         const savedSetting = localStorage.getItem(`customerMgmt_${u.uid}`);
         setCustomerManagementEnabled(savedSetting === 'true');
       } else {
+        // Logout cleanup
+        setUserProfile(null);
+        setCurrentWorkspaceId(null);
         setCustomerManagementEnabled(false);
       }
+      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -123,31 +189,31 @@ export default function App() {
   // --- Syncronisation Firestore ---
 
   useEffect(() => {
-    if (!user) return;
+    if (!currentWorkspaceId) return;
 
-    // Produits - User-scoped
-    const qProducts = query(collection(db, 'users', user.uid, 'products'));
+    // Produits - Workspace-scoped
+    const qProducts = query(collection(db, 'users', currentWorkspaceId, 'products'));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setProducts(items);
     }, (error) => console.error("Erreur produits:", error));
 
-    // Ventes - User-scoped
-    const qSales = query(collection(db, 'users', user.uid, 'sales'), orderBy('date', 'desc'));
+    // Ventes - Workspace-scoped
+    const qSales = query(collection(db, 'users', currentWorkspaceId, 'sales'), orderBy('date', 'desc'));
     const unsubSales = onSnapshot(qSales, (snapshot) => {
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSales(items);
     }, (error) => console.error("Erreur ventes:", error));
 
-    // Customers - User-scoped
-    const qCustomers = query(collection(db, 'users', user.uid, 'customers'), orderBy('createdAt', 'desc'));
+    // Customers - Workspace-scoped
+    const qCustomers = query(collection(db, 'users', currentWorkspaceId, 'customers'), orderBy('createdAt', 'desc'));
     const unsubCustomers = onSnapshot(qCustomers, (snapshot) => {
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setCustomers(items);
     }, (error) => console.error("Erreur clients:", error));
 
-    // Ingredients - User-scoped
-    const qIngredients = query(collection(db, 'users', user.uid, 'ingredients'));
+    // Ingredients - Workspace-scoped
+    const qIngredients = query(collection(db, 'users', currentWorkspaceId, 'ingredients'));
     const unsubIngredients = onSnapshot(qIngredients, (snapshot) => {
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setIngredients(items);
@@ -159,7 +225,7 @@ export default function App() {
       unsubCustomers();
       unsubIngredients();
     };
-  }, [user]);
+  }, [user, currentWorkspaceId]);
 
   // --- Automatic Low Stock Alerts (3x per day at random intervals) ---
 
@@ -302,7 +368,7 @@ export default function App() {
       };
 
       // On utilise l'ID généré par Firestore pour le QR code
-      const docRef = await addDoc(collection(db, 'users', user.uid, 'products'), newProduct);
+      const docRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'products'), newProduct);
 
       showNotification("Produit créé avec QR Code associé");
     } catch (e) {
@@ -314,107 +380,103 @@ export default function App() {
   const updateProduct = async (productData) => {
     if (!user) return;
     try {
-      const ref = doc(db, 'users', user.uid, 'products', productData.id);
-      await updateDoc(ref, {
-        name: productData.name,
-        stock: parseInt(productData.stock),
-        price: parseFloat(productData.price),
-        cost: parseFloat(productData.cost),
-        minStock: parseInt(productData.minStock)
-      });
+      const ref = doc(db, 'users', currentWorkspaceId, 'products', productData.id);
+      await updateDoc(ref, productData);
       showNotification("Produit mis à jour");
     } catch (e) {
-      showNotification("Erreur mise à jour", "error");
+      console.error(e);
+      showNotification('error', "Erreur lors de la mise à jour");
     }
   };
 
   const deleteProduct = async (id) => {
     if (!user) return;
-    if (window.confirm("Supprimer ce produit définitivement ?")) {
-      await deleteDoc(doc(db, 'users', user.uid, 'products', id));
-      showNotification("Produit supprimé", "error");
+    try {
+      await deleteDoc(doc(db, 'users', currentWorkspaceId, 'products', id));
+      showNotification("Produit supprimé");
+    } catch (e) {
+      console.error(e);
+      showNotification('error', "Erreur lors de la suppression");
     }
   };
 
-  // --- Customer Management ---
+  // --- Gestion Clients ---
 
-  const createCustomer = async (customerData) => {
+  const createCustomer = async (data) => {
     if (!user) return null;
     try {
       const newCustomer = {
-        name: customerData.name,
-        phone: customerData.phone || '',
-        email: customerData.email || '',
-        notes: customerData.notes || '',
+        ...data,
         createdAt: serverTimestamp(),
-        totalPurchases: 0,
         totalSpent: 0,
-        totalItems: 0,
-        lastPurchaseDate: null
+        visitCount: 0,
+        debt: 0
       };
-      const docRef = await addDoc(collection(db, 'users', user.uid, 'customers'), newCustomer);
-      showNotification(`Client ${customerData.name} ajouté`);
-      return { id: docRef.id, ...newCustomer };
+      const docRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'customers'), newCustomer);
+      const customer = { id: docRef.id, ...newCustomer };
+      showNotification("Client créé");
+      return customer;
     } catch (e) {
       console.error(e);
-      showNotification("Erreur création client", "error");
+      showNotification('error', "Erreur lors de la création du client");
       return null;
     }
   };
 
-  const updateCustomer = async (id, customerData) => {
+  const updateCustomer = async (id, data) => {
     if (!user) return;
     try {
-      await updateDoc(doc(db, 'users', user.uid, 'customers', id), customerData);
+      const customerData = { ...data };
+      if (data.debt !== undefined) customerData.debt = Number(data.debt);
+
+      await updateDoc(doc(db, 'users', currentWorkspaceId, 'customers', id), customerData);
       showNotification("Client mis à jour");
     } catch (e) {
-      showNotification("Erreur mise à jour client", "error");
+      console.error(e);
+      showNotification('error', "Erreur mise à jour client");
     }
   };
 
   const deleteCustomer = async (id) => {
     if (!user) return;
-    if (window.confirm("Supprimer ce client définitivement ?")) {
-      await deleteDoc(doc(db, 'users', user.uid, 'customers', id));
-      showNotification("Client supprimé", "error");
+    try {
+      await deleteDoc(doc(db, 'users', currentWorkspaceId, 'customers', id));
+      showNotification("Client supprimé");
+    } catch (e) {
+      console.error(e);
+      showNotification('error', "Erreur suppression client");
     }
   };
 
-  // --- Ingrédients CRUD ---
+  // --- Gestion Ingrédients ---
 
   const addIngredient = async (data) => {
     if (!user) return;
     const ingredientData = {
-      name: data.name,
-      trackingType: data.trackingType, // "quantity" ou "usage"
-      createdAt: serverTimestamp(),
+      ...data,
+      stock: Number(data.stock),
+      minStock: Number(data.minStock),
+      fullUnits: Number(data.fullUnits) || 0,
+      currentUnitUsages: Number(data.currentUnitUsages) || 0,
+      usagesPerUnit: Number(data.usagesPerUnit) || 20,
+      minFullUnits: Number(data.minFullUnits) || 2,
     };
-
-    if (data.trackingType === 'quantity') {
-      ingredientData.stock = Number(data.stock) || 0;
-      ingredientData.minStock = Number(data.minStock) || 5;
-    } else {
-      // trackingType === 'usage'
-      ingredientData.fullUnits = Number(data.fullUnits) || 0;
-      ingredientData.currentUnitUsages = Number(data.usagesPerUnit) || 0; // Commence plein
-      ingredientData.usagesPerUnit = Number(data.usagesPerUnit) || 1;
-      ingredientData.minFullUnits = Number(data.minFullUnits) || 2;
-    }
-
-    await addDoc(collection(db, 'users', user.uid, 'ingredients'), ingredientData);
-    showNotification(`Ingrédient "${data.name}" ajouté`);
+    await addDoc(collection(db, 'users', currentWorkspaceId, 'ingredients'), ingredientData);
+    showNotification("Ingrédient ajouté");
   };
 
   const updateIngredient = async (id, data) => {
     if (!user) return;
-    await updateDoc(doc(db, 'users', user.uid, 'ingredients', id), data);
+    const ingredientData = { ...data };
+    if (ingredientData.stock) ingredientData.stock = Number(ingredientData.stock);
+    await updateDoc(doc(db, 'users', currentWorkspaceId, 'ingredients', id), data);
     showNotification("Ingrédient mis à jour");
   };
 
   const deleteIngredient = async (id) => {
     if (!user) return;
-    await deleteDoc(doc(db, 'users', user.uid, 'ingredients', id));
-    showNotification("Ingrédient supprimé", "error");
+    await deleteDoc(doc(db, 'users', currentWorkspaceId, 'ingredients', id));
+    showNotification("Ingrédient supprimé");
   };
 
 
@@ -453,7 +515,7 @@ export default function App() {
       if (!ingredient) continue;
 
       const totalUsage = recipeItem.quantityPerProduct * quantity;
-      const ingredientRef = doc(db, 'users', user.uid, 'ingredients', ingredient.id);
+      const ingredientRef = doc(db, 'users', currentWorkspaceId, 'ingredients', ingredient.id);
 
       if (ingredient.trackingType === 'quantity') {
         // Simple decrement
@@ -501,7 +563,8 @@ export default function App() {
     if (cart.length === 0 || !user) return;
 
     const totalSale = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    const totalCost = cart.reduce((sum, item) => sum + (item.cost * item.qty), 0);
+    // Calculate total cost (COGS) using purchasePrice (new) or cost (legacy)
+    const totalCost = cart.reduce((sum, item) => sum + ((item.purchasePrice || item.cost || 0) * item.qty), 0);
 
     try {
       // 1. Enregistrer la vente
@@ -509,6 +572,7 @@ export default function App() {
         date: new Date().toISOString(),
         items: cart,
         total: totalSale,
+        totalCost: totalCost, // Store total cost for easier aggregation
         profit: totalSale - totalCost,
         userId: user.uid,
         customerId: selectedCustomer?.id || null,
@@ -531,7 +595,7 @@ export default function App() {
             method: paymentDetails?.method || 'cash'
           }]
       };
-      const saleRef = await addDoc(collection(db, 'users', user.uid, 'sales'), saleData);
+      const saleRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'sales'), saleData);
 
       // 2. Mettre à jour les stocks (produits simples) ou décrémenter ingrédients (produits composés)
       for (const item of cart) {
@@ -543,14 +607,14 @@ export default function App() {
           await decrementIngredients(currentProduct, item.qty);
         } else {
           // Normal stock update for simple products
-          const productRef = doc(db, 'users', user.uid, 'products', item.id);
+          const productRef = doc(db, 'users', currentWorkspaceId, 'products', item.id);
           await updateDoc(productRef, { stock: currentProduct.stock - item.qty });
         }
       }
 
       // 3. Mettre à jour les statistiques du client
       if (selectedCustomer) {
-        const customerRef = doc(db, 'users', user.uid, 'customers', selectedCustomer.id);
+        const customerRef = doc(db, 'users', currentWorkspaceId, 'customers', selectedCustomer.id);
         const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
 
         const updateData = {
@@ -695,7 +759,30 @@ export default function App() {
               <span className="font-medium">{item.label}</span>
             </button>
           ))}
+          {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
+            <Link to="/team" className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${activeTab === 'team' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <Users size={20} />
+              <span className="font-medium">Équipe</span>
+            </Link>
+          )}
+
+          {/* Expenses Link */}
+          {hasPermission(userProfile, PERMISSIONS.VIEW_FINANCIAL_ANALYTICS) && (
+            <Link to="/expenses" className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${activeTab === 'expenses' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <DollarSign size={20} />
+              <span className="font-medium">Dépenses</span>
+            </Link>
+          )}
+
+          {/* Finance Dashboard Link */}
+          {hasPermission(userProfile, PERMISSIONS.VIEW_FINANCIAL_ANALYTICS) && (
+            <Link to="/finance" className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${activeTab === 'finance' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <BarChart2 size={20} />
+              <span className="font-medium">Rapport P&L</span>
+            </Link>
+          )}
         </nav>
+
 
         <div className="p-4 border-t border-slate-800 space-y-2">
           <div className="text-xs text-slate-400 truncate">{user?.displayName || user?.email}</div>
@@ -753,21 +840,21 @@ export default function App() {
         <div className="flex-1 overflow-auto p-3 lg:p-6 custom-scrollbar">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardView
+            <Route path="/dashboard" element={hasPermission(userProfile, PERMISSIONS.VIEW_DASHBOARD) ? <DashboardView
               sales={sales}
               stats={stats}
               ingredients={ingredients}
               products={products}
               setActiveTab={(tab) => navigate(`/${tab}`)}
               setViewingReceipt={setViewingReceipt}
-            />} />
-            <Route path="/analytics" element={<AnalyticsView
+            /> : <Navigate to="/profile" replace />} />
+            <Route path="/analytics" element={hasPermission(userProfile, PERMISSIONS.VIEW_FINANCIAL_ANALYTICS) ? <AnalyticsView
               sales={sales}
               products={products}
               customers={customers}
               setActiveTab={(tab) => navigate(`/${tab}`)}
-            />} />
-            <Route path="/pos" element={<POSView
+            /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/pos" element={hasPermission(userProfile, PERMISSIONS.ACCESS_POS) ? <POSView
               cart={cart}
               products={products}
               addToCart={addToCart}
@@ -781,8 +868,8 @@ export default function App() {
               setIsScannerOpen={setIsScannerOpen}
               ingredients={ingredients}
               customerManagementEnabled={customerManagementEnabled}
-            />} />
-            <Route path="/inventory" element={<InventoryView
+            /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/inventory" element={hasPermission(userProfile, PERMISSIONS.VIEW_STOCK) ? <InventoryView
               products={products}
               ingredients={ingredients}
               searchTerm={searchTerm}
@@ -791,14 +878,15 @@ export default function App() {
               updateProduct={updateProduct}
               deleteProduct={deleteProduct}
               showNotification={showNotification}
-            />} />
-            <Route path="/sales_history" element={<HistoryView
+            /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/sales_history" element={hasPermission(userProfile, PERMISSIONS.VIEW_SALES_HISTORY) ? <HistoryView
               sales={sales}
               setViewingReceipt={setViewingReceipt}
-            />} />
-            <Route path="/customers" element={customerManagementEnabled ? <CustomerView
+            /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/customers" element={(customerManagementEnabled && hasPermission(userProfile, PERMISSIONS.VIEW_CUSTOMERS)) ? <CustomerView
               customers={customers}
               sales={sales}
+              createCustomer={createCustomer}
               updateCustomer={updateCustomer}
               deleteCustomer={deleteCustomer}
               setShowCustomerModal={setShowCustomerModal}
@@ -811,21 +899,42 @@ export default function App() {
               setReturnChangeCustomer={setReturnChangeCustomer}
               showNotification={showNotification}
             /> : <Navigate to="/dashboard" replace />} />
-            <Route path="/ingredients" element={<IngredientsView
+            <Route path="/ingredients" element={hasPermission(userProfile, PERMISSIONS.VIEW_STOCK) ? <IngredientsView
               ingredients={ingredients}
               addIngredient={addIngredient}
               updateIngredient={updateIngredient}
               deleteIngredient={deleteIngredient}
-            />} />
+            /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/expenses" element={
+              <ProtectedRoute permission={PERMISSIONS.VIEW_FINANCIAL_ANALYTICS}>
+                <ExpensesView
+                  workspaceId={currentWorkspaceId}
+                  showNotification={showNotification}
+                />
+              </ProtectedRoute>
+            } />
+            <Route path="/finance" element={
+              <ProtectedRoute permission={PERMISSIONS.VIEW_FINANCIAL_ANALYTICS}>
+                <FinanceView workspaceId={currentWorkspaceId} />
+              </ProtectedRoute>
+            } />
             <Route path="/profile" element={<ProfileView
               user={user}
+              userProfile={userProfile}
               products={products}
               sales={sales}
               customers={customers}
               showNotification={showNotification}
               customerManagementEnabled={customerManagementEnabled}
               setCustomerManagementEnabled={setCustomerManagementEnabled}
+              workspaceId={currentWorkspaceId}
             />} />
+            <Route path="/team" element={hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) ? <TeamView
+              user={user}
+              userProfile={userProfile}
+              workspaceId={currentWorkspaceId}
+              showNotification={showNotification}
+            /> : <Navigate to="/profile" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -1000,8 +1109,8 @@ export default function App() {
                       setShowMobileMenu(false);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === item.id
-                        ? 'bg-indigo-500 text-white'
-                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      ? 'bg-indigo-500 text-white'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                       }`}
                   >
                     <item.icon size={20} strokeWidth={activeTab === item.id ? 2.5 : 2} />
@@ -1029,8 +1138,8 @@ export default function App() {
                       setShowMobileMenu(false);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === item.id
-                        ? 'bg-indigo-500 text-white'
-                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      ? 'bg-indigo-500 text-white'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                       }`}
                   >
                     <item.icon size={20} strokeWidth={activeTab === item.id ? 2.5 : 2} />
@@ -1113,6 +1222,7 @@ export default function App() {
             onClose={() => setRepaymentCustomer(null)}
             db={db}
             user={user}
+            workspaceId={currentWorkspaceId}
             showNotification={showNotification}
           />
         )
@@ -1125,6 +1235,7 @@ export default function App() {
           sale={repaymentSale}
           onClose={() => setRepaymentSale(null)}
           user={user}
+          workspaceId={currentWorkspaceId}
           showNotification={showNotification}
         />
       )}
@@ -1135,6 +1246,7 @@ export default function App() {
           customer={returnChangeCustomer}
           onClose={() => setReturnChangeCustomer(null)}
           user={user}
+          workspaceId={currentWorkspaceId}
           showNotification={showNotification}
         />
       )}

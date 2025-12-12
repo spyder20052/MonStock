@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Users, Search, Plus, Edit3, Trash2, AlertTriangle, DollarSign, ChevronLeft, FileText, RefreshCw, Clock, Printer, Phone, Wallet } from 'lucide-react';
 import { formatMoney } from '../../utils/helpers';
 import EditCustomerModal from '../../components/modals/EditCustomerModal';
+import CreateCustomerModal from '../../components/modals/CreateCustomerModal';
 import DeleteCustomerModal from '../../components/modals/DeleteCustomerModal';
 import RepaymentModal from '../../components/modals/RepaymentModal';
 import ChangeRepaymentModal from '../../components/modals/ChangeRepaymentModal';
@@ -9,6 +10,7 @@ import ChangeRepaymentModal from '../../components/modals/ChangeRepaymentModal';
 const CustomerView = ({
     customers,
     sales,
+    createCustomer,
     updateCustomer,
     deleteCustomer,
     setShowCustomerModal,
@@ -24,6 +26,7 @@ const CustomerView = ({
     const [customerSearchTerm, setCustomerSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('recent'); // recent, spent, purchases
     const [editingCustomer, setEditingCustomer] = useState(null);
+    const [showCreateCustomerModal, setShowCreateCustomerModal] = useState(false);
     const [deletingCustomer, setDeletingCustomer] = useState(null);
 
     const filteredCustomers = useMemo(() => {
@@ -286,7 +289,7 @@ const CustomerView = ({
                         <option value="purchases">Plus d'achats</option>
                     </select>
                     <button
-                        onClick={() => setShowCustomerModal(true)}
+                        onClick={() => setShowCreateCustomerModal(true)}
                         className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 whitespace-nowrap"
                     >
                         <Plus size={18} />
@@ -385,7 +388,14 @@ const CustomerView = ({
                 )}
             </div>
 
-            {/* Customer Edit/Delete Modals */}
+            {/* Customer Edit/Delete/Create Modals */}
+            {showCreateCustomerModal && (
+                <CreateCustomerModal
+                    onClose={() => setShowCreateCustomerModal(false)}
+                    createCustomer={createCustomer}
+                    showNotification={showNotification}
+                />
+            )}
             {editingCustomer && (
                 <EditCustomerModal
                     customer={editingCustomer}
