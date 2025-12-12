@@ -23,7 +23,10 @@ export const isIngredientLow = (ingredient) => {
     if (ingredient.trackingType === 'quantity') {
         return (ingredient.stock || 0) < (ingredient.minStock || 5);
     } else {
-        return (ingredient.fullUnits || 0) < (ingredient.minFullUnits || 2);
+        // Pour type "usage": le seuil est défini en nombre total d'utilisations
+        const totalUsages = getIngredientAvailableStock(ingredient);
+        const minUsages = ingredient.minFullUnits || 10;
+        return totalUsages < minUsages;
     }
 };
 
