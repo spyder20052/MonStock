@@ -8,7 +8,7 @@ const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
         name: editingProduct?.name || '',
         cost: editingProduct?.cost || 0,
         price: editingProduct?.price || 0,
-        purchasePrice: editingProduct?.purchasePrice || 0,
+        purchasePrice: editingProduct?.purchasePrice || editingProduct?.cost || 0,
         stock: editingProduct?.stock || 0,
         minStock: editingProduct?.minStock || 5,
         isComposite: editingProduct?.isComposite || false,
@@ -67,7 +67,7 @@ const ProductFormModal = ({ editingProduct, onClose, onSave, ingredients }) => {
         e.preventDefault();
         const dataToSave = {
             name: formData.name,
-            cost: Number(formData.cost),
+            cost: Number(formData.purchasePrice || 0), // Fix: Save entered purchasePrice as cost
             price: Number(formData.price),
             purchasePrice: Number(formData.purchasePrice || 0),
             isComposite: formData.isComposite,

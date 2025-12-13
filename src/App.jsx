@@ -3,7 +3,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, History, Settings,
   Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign, BarChart2,
   Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3,
-  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users, Clock, Wifi, WifiOff, RefreshCw, Menu
+  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users, Clock, Wifi, WifiOff, RefreshCw, Menu, BookOpen, HelpCircle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
@@ -24,9 +24,10 @@ import IngredientsView from './pages/Ingredients/IngredientsView';
 import ProfileView from './pages/Profile/ProfileView';
 import TeamView from './pages/Team/TeamView';
 import ExpensesView from './pages/Expenses/ExpensesView';
-import FinanceView from './pages/Analytics/FinanceView'; // New Import
+import FinanceView from './pages/Analytics/FinanceView';
 import ActivityLogView from './pages/Admin/ActivityLogView';
 import PendingApprovalsView from './pages/Admin/PendingApprovalsView';
+import HelpView from './pages/Help/HelpView';
 import DeletionRequestsPanel from './components/DeletionRequestsPanel';
 import CreateCustomerModal from './components/modals/CreateCustomerModal';
 import CustomerSelectorModal from './components/modals/CustomerSelectorModal';
@@ -731,8 +732,13 @@ export default function App() {
       };
       const saleRef = await addDoc(collection(db, 'users', currentWorkspaceId, 'sales'), saleData);
 
-      // Log action
-      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.SALE_CREATED, `Vente enregistrée: ${formatMoney(totalSale)} (${cart.length} articles)`, { saleId: saleRef.id, total: totalSale });
+      // Log sale action
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.SALE_CREATED, `Vente #${saleRef.id} - Total: ${formatMoney(totalSale)}`, { saleId: saleRef.id, total: totalSale });
+
+      // Log change given if applicable
+      if (paymentDetails.change > 0) {
+        logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.CHANGE_GIVEN, `Monnaie rendue sur la vente #${saleRef.id}: ${formatMoney(paymentDetails.change)}`, { saleId: saleRef.id, amount: paymentDetails.change });
+      }
 
       // 2. Mettre à jour les stocks (produits simples) ou décrémenter ingrédients (produits composés)
       for (const item of cart) {
@@ -896,6 +902,13 @@ export default function App() {
               <span className="font-medium">{item.label}</span>
             </button>
           ))}
+
+          {/* Help Link */}
+          <Link to="/help" className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'help' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <HelpCircle size={22} />
+            <span className="font-medium">Aide & Guide</span>
+          </Link>
+
           {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
             <Link to="/team" className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${activeTab === 'team' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}>
               <Users size={20} />
@@ -1124,6 +1137,8 @@ export default function App() {
               showNotification={showNotification}
             /> : <Navigate to="/dashboard" replace />} />
 
+            <Route path="/help" element={<HelpView userProfile={userProfile} customerManagementEnabled={customerManagementEnabled} />} />
+
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -1318,6 +1333,7 @@ export default function App() {
                 {[
                   ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
                   { id: 'ingredients', icon: Package, label: 'Ingrédients' },
+                  { id: 'help', icon: HelpCircle, label: 'Aide & Guide' },
                   { id: 'profile', icon: Settings, label: 'Paramètres' },
                 ].map(item => (
                   <button

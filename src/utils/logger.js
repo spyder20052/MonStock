@@ -48,6 +48,7 @@ export const LOG_ACTIONS = {
     // Sales
     SALE_CREATED: 'SALE_CREATED',
     SALE_DELETED: 'SALE_DELETED', // If we implement refund/delete
+    CHANGE_GIVEN: 'CHANGE_GIVEN',
 
     // Customers
     CUSTOMER_CREATED: 'CUSTOMER_CREATED',
