@@ -173,8 +173,8 @@ const ProfileView = ({
             {/* Message */}
             {message && (
                 <div className={`p-4 rounded-xl flex items-center gap-3 ${message.type === 'success'
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-red-50 text-red-700 border border-red-200'
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : 'bg-red-50 text-red-700 border border-red-200'
                     }`}>
                     {message.type === 'success' ? <Check size={18} /> : <AlertTriangle size={18} />}
                     <span className="text-sm font-medium">{message.text}</span>
@@ -406,57 +406,59 @@ const ProfileView = ({
                 </form>
             </div>
 
-            {/* Danger Zone */}
-            <div className="bg-red-50 rounded-xl border border-red-200 p-6">
-                <h3 className="font-semibold text-red-700 mb-4 flex items-center gap-2">
-                    <AlertTriangle size={18} />
-                    Zone de Danger
-                </h3>
+            {/* Danger Zone - Admin Only */}
+            {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
+                <div className="bg-red-50 rounded-xl border border-red-200 p-6">
+                    <h3 className="font-semibold text-red-700 mb-4 flex items-center gap-2">
+                        <AlertTriangle size={18} />
+                        Zone de Danger
+                    </h3>
 
-                <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-red-100">
-                        <div>
-                            <p className="font-medium text-sm text-slate-700">Réinitialiser les produits</p>
-                            <p className="text-xs text-slate-500">Supprime tous les produits de l'inventaire</p>
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-red-100">
+                            <div>
+                                <p className="font-medium text-sm text-slate-700">Réinitialiser les produits</p>
+                                <p className="text-xs text-slate-500">Supprime tous les produits de l'inventaire</p>
+                            </div>
+                            <button
+                                onClick={() => handleResetData('products')}
+                                disabled={saving}
+                                className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200 transition-colors"
+                            >
+                                Supprimer
+                            </button>
                         </div>
-                        <button
-                            onClick={() => handleResetData('products')}
-                            disabled={saving}
-                            className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200 transition-colors"
-                        >
-                            Supprimer
-                        </button>
-                    </div>
 
-                    <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-red-100">
-                        <div>
-                            <p className="font-medium text-sm text-slate-700">Réinitialiser les ventes</p>
-                            <p className="text-xs text-slate-500">Supprime tout l'historique des ventes</p>
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-red-100">
+                            <div>
+                                <p className="font-medium text-sm text-slate-700">Réinitialiser les ventes</p>
+                                <p className="text-xs text-slate-500">Supprime tout l'historique des ventes</p>
+                            </div>
+                            <button
+                                onClick={() => handleResetData('sales')}
+                                disabled={saving}
+                                className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200 transition-colors"
+                            >
+                                Supprimer
+                            </button>
                         </div>
-                        <button
-                            onClick={() => handleResetData('sales')}
-                            disabled={saving}
-                            className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200 transition-colors"
-                        >
-                            Supprimer
-                        </button>
-                    </div>
 
-                    <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-red-100">
-                        <div>
-                            <p className="font-medium text-sm text-slate-700">Tout supprimer</p>
-                            <p className="text-xs text-slate-500">Produits, ventes et historique (Irreversible)</p>
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-red-100">
+                            <div>
+                                <p className="font-medium text-sm text-slate-700">Tout supprimer</p>
+                                <p className="text-xs text-slate-500">Produits, ventes et historique (Irreversible)</p>
+                            </div>
+                            <button
+                                onClick={() => handleResetData('all')}
+                                disabled={saving}
+                                className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors"
+                            >
+                                Tout Effacer
+                            </button>
                         </div>
-                        <button
-                            onClick={() => handleResetData('all')}
-                            disabled={saving}
-                            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors"
-                        >
-                            Tout Effacer
-                        </button>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };

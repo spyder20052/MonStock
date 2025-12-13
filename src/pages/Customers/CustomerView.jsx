@@ -26,7 +26,7 @@ const CustomerView = ({
     userProfile
 }) => {
     const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-    const [sortBy, setSortBy] = useState('recent'); // recent, spent, purchases
+    const [sortBy, setSortBy] = useState('alphabetical'); // alphabetical, recent, spent, purchases
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [showCreateCustomerModal, setShowCreateCustomerModal] = useState(false);
     const [deletingCustomer, setDeletingCustomer] = useState(null);
@@ -77,12 +77,15 @@ const CustomerView = ({
                 filtered.sort((a, b) => b.totalPurchases - a.totalPurchases);
                 break;
             case 'recent':
-            default:
                 filtered.sort((a, b) => {
                     const dateA = a.lastPurchaseDate instanceof Date ? a.lastPurchaseDate : (a.lastPurchaseDate?.toDate?.() || new Date(0));
                     const dateB = b.lastPurchaseDate instanceof Date ? b.lastPurchaseDate : (b.lastPurchaseDate?.toDate?.() || new Date(0));
                     return dateB - dateA;
                 });
+                break;
+            case 'alphabetical':
+            default:
+                filtered.sort((a, b) => a.name.localeCompare(b.name));
         }
 
         return filtered;
@@ -318,6 +321,7 @@ const CustomerView = ({
                         onChange={(e) => setSortBy(e.target.value)}
                         className="px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 text-sm"
                     >
+                        <option value="alphabetical">Alphabétique</option>
                         <option value="recent">Plus récents</option>
                         <option value="spent">Plus dépensé</option>
                         <option value="purchases">Plus d'achats</option>

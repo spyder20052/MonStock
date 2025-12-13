@@ -8,11 +8,12 @@ import {
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, addDoc, updateDoc,
-  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment, enableIndexedDbPersistence, arrayUnion, getDoc, setDoc
+  deleteDoc, onSnapshot, query, where, orderBy, writeBatch, serverTimestamp, increment, enableIndexedDbPersistence, arrayUnion, getDoc, setDoc
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, signOut, updateProfile, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { ROLES, PERMISSIONS, hasPermission } from './utils/permissions';
 import { logAction, LOG_ACTIONS } from './utils/logger';
+import { requiresApproval, createDeletionRequest, canDeleteDirectly, translateReasons } from './utils/approvalHelpers';
 import DashboardView from './pages/Dashboard/DashboardView';
 import AnalyticsView from './pages/Analytics/AnalyticsView';
 import POSView from './pages/POS/POSView';
@@ -25,6 +26,8 @@ import TeamView from './pages/Team/TeamView';
 import ExpensesView from './pages/Expenses/ExpensesView';
 import FinanceView from './pages/Analytics/FinanceView'; // New Import
 import ActivityLogView from './pages/Admin/ActivityLogView';
+import PendingApprovalsView from './pages/Admin/PendingApprovalsView';
+import DeletionRequestsPanel from './components/DeletionRequestsPanel';
 import CreateCustomerModal from './components/modals/CreateCustomerModal';
 import CustomerSelectorModal from './components/modals/CustomerSelectorModal';
 import ScannerModal from './components/modals/ScannerModal';
@@ -64,6 +67,23 @@ export default function App() {
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null); // Owner/Company ID to fetch data from
   const [showMobileCart, setShowMobileCart] = useState(false);
 
+  // Écouter les demandes de suppression pending de l'utilisateur
+  useEffect(() => {
+    if (!user || !currentWorkspaceId) return;
+
+    const q = query(
+      collection(db, 'users', currentWorkspaceId, 'pendingDeletions'),
+      where('requestedBy.userId', '==', user.uid),
+      where('status', '==', 'pending')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPendingDeletionCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, [user, currentWorkspaceId]);
+
   // Customer Management States
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerSearch, setCustomerSearch] = useState('');
@@ -74,6 +94,8 @@ export default function App() {
   const [repaymentSale, setRepaymentSale] = useState(null); // For specific sale repayment
   const [returnChangeCustomer, setReturnChangeCustomer] = useState(null); // For change return
   const [showMobileMenu, setShowMobileMenu] = useState(false); // Mobile overflow menu
+  const [showDeletionPanel, setShowDeletionPanel] = useState(false); // Deletion requests panel
+  const [pendingDeletionCount, setPendingDeletionCount] = useState(0); // Count of pending deletion requests
 
   // Ingredients States
   const [ingredients, setIngredients] = useState([]);
@@ -392,15 +414,38 @@ export default function App() {
   const deleteProduct = async (id) => {
     if (!user) return;
     try {
+      // Récupérer le produit
+      const product = products.find(p => p.id === id);
+      if (!product) {
+        showNotification("Produit introuvable", "error");
+        return;
+      }
+
+      // Vérifier si approbation nécessaire
+      const approval = requiresApproval(product, { uid: user.uid, role: userProfile?.role, ...userProfile }, 'PRODUCT');
+
+      if (approval.required) {
+        // Créer une demande d'approbation
+        await createDeletionRequest(db, currentWorkspaceId, product, { uid: user.uid, displayName: user.displayName || user.email, ...userProfile }, 'PRODUCT', approval.reasons);
+
+        const reasonsText = translateReasons(approval.reasons).join(', ');
+        showNotification(
+          `Demande de suppression envoyée à l'admin. Raisons: ${reasonsText}`,
+          "info"
+        );
+        return;
+      }
+
+      // Suppression directe si autorisé
       await deleteDoc(doc(db, 'users', currentWorkspaceId, 'products', id));
 
       // Log action
-      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.PRODUCT_DELETED, `Produit supprimé (ID: ${id})`, { productId: id });
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.PRODUCT_DELETED, `Produit supprimé: ${product.name}`, { productId: id });
 
       showNotification("Produit supprimé");
     } catch (e) {
       console.error(e);
-      showNotification('error', "Erreur lors de la suppression");
+      showNotification("Erreur lors de la suppression", "error");
     }
   };
 
@@ -452,15 +497,44 @@ export default function App() {
   const deleteCustomer = async (id) => {
     if (!user) return;
     try {
+      // Récupérer le client
+      const customer = customers.find(c => c.id === id);
+      if (!customer) {
+        showNotification("Client introuvable", "error");
+        return;
+      }
+
+      // Calculer l'historique d'achats
+      const customerSales = sales.filter(s => s.customerId === id);
+      const additionalData = {
+        purchaseCount: customerSales.length
+      };
+
+      // Vérifier si approbation nécessaire
+      const approval = requiresApproval(customer, { uid: user.uid, role: userProfile?.role, ...userProfile }, 'CUSTOMER', additionalData);
+
+      if (approval.required) {
+        // Créer une demande d'approbation
+        await createDeletionRequest(db, currentWorkspaceId, customer, { uid: user.uid, displayName: user.displayName || user.email, ...userProfile }, 'CUSTOMER', approval.reasons);
+
+        const reasonsText = translateReasons(approval.reasons).join(', ');
+        showNotification(
+          `Demande de suppression envoyée à l'admin. Raisons: ${reasonsText}`,
+          "info"
+        );
+        return;
+      }
+
+      // Suppression directe si autorisé
       await deleteDoc(doc(db, 'users', currentWorkspaceId, 'customers', id));
 
       // Log action
-      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.CUSTOMER_DELETED, `Client supprimé (ID: ${id})`, { customerId: id });
+      logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.CUSTOMER_DELETED, `Client supprimé: ${customer.name}`, { customerId: id });
 
       showNotification("Client supprimé");
     } catch (e) {
       console.error(e);
-      showNotification('error', "Erreur suppression client");
+      showNotification("Erreur suppression client", "error");
     }
   };
 
@@ -499,12 +573,44 @@ export default function App() {
 
   const deleteIngredient = async (id) => {
     if (!user) return;
-    await deleteDoc(doc(db, 'users', currentWorkspaceId, 'ingredients', id));
+    try {
+      // Récupérer l'ingrédient
+      const ingredient = ingredients.find(i => i.id === id);
+      if (!ingredient) {
+        showNotification("Ingrédient introuvable", "error");
+        return;
+      }
 
-    // Log action
-    await logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.INGREDIENT_DELETED, `Ingrédient supprimé (ID: ${id})`, { ingredientId: id });
+      // Calculer valeur estimée
+      const estimatedValue = ingredient.stock && ingredient.cost ? ingredient.stock * ingredient.cost : 0;
+      const additionalData = { estimatedValue };
 
-    showNotification("Ingrédient supprimé");
+      // Vérifier si approbation nécessaire
+      const approval = requiresApproval(ingredient, { uid: user.uid, role: userProfile?.role, ...userProfile }, 'INGREDIENT', additionalData);
+
+      if (approval.required) {
+        // Créer une demande d'approbation
+        await createDeletionRequest(db, currentWorkspaceId, ingredient, { uid: user.uid, displayName: user.displayName || user.email, ...userProfile }, 'INGREDIENT', approval.reasons);
+
+        const reasonsText = translateReasons(approval.reasons).join(', ');
+        showNotification(
+          `Demande de suppression envoyée à l'admin. Raisons: ${reasonsText}`,
+          "info"
+        );
+        return;
+      }
+
+      // Suppression directe si autorisé
+      await deleteDoc(doc(db, 'users', currentWorkspaceId, 'ingredients', id));
+
+      // Log action
+      await logAction(db, currentWorkspaceId, { uid: user.uid, ...userProfile }, LOG_ACTIONS.INGREDIENT_DELETED, `Ingrédient supprimé: ${ingredient.name}`, { ingredientId: id });
+
+      showNotification("Ingrédient supprimé");
+    } catch (e) {
+      console.error(e);
+      showNotification("Erreur lors de la suppression", "error");
+    }
   };
 
 
@@ -820,6 +926,31 @@ export default function App() {
               <span className="font-medium">Journal d'Activité</span>
             </Link>
           )}
+
+          {/* Pending Approvals Link (Admin Only) */}
+          {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
+            <Link to="/admin/approvals" className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${activeTab === 'admin/approvals' ? 'bg-amber-50 text-amber-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <AlertTriangle size={20} />
+              <span className="font-medium">Approbations</span>
+              {/* Note: A badge could be added here by listening to pendingDeletions collection */}
+            </Link>
+          )}
+
+          {/* User Deletion Requests Notification */}
+          {pendingDeletionCount > 0 && (
+            <button
+              onClick={() => setShowDeletionPanel(true)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg mb-1 transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
+            >
+              <div className="flex items-center gap-3">
+                <AlertTriangle size={20} />
+                <span className="font-medium">Mes demandes</span>
+              </div>
+              <span className="bg-amber-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {pendingDeletionCount}
+              </span>
+            </button>
+          )}
         </nav>
 
 
@@ -842,10 +973,10 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className={`flex-1 flex flex-col h-screen overflow-hidden relative transition-transform duration-300 ease-out ${showMobileMenu ? 'lg:transform-none transform translate-x-64 scale-95' : ''
+      <main className={`flex-1 flex flex-col overflow-hidden relative transition-transform duration-300 ease-out ${showMobileMenu ? 'lg:transform-none transform translate-x-64 scale-95' : ''
         }`}>
         {/* Mobile Header - With Menu Button */}
-        <header className="h-14 lg:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shadow-sm z-10">
+        <header className="h-14 lg:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shadow-sm z-10 flex-shrink-0">
           <div className="flex items-center gap-3">
             {/* Hamburger Menu Button - Mobile Only */}
             <button
@@ -876,7 +1007,7 @@ export default function App() {
           </div>
         </header >
 
-        <div className="flex-1 overflow-auto p-3 lg:p-6 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 lg:p-6 custom-scrollbar">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={hasPermission(userProfile, PERMISSIONS.VIEW_DASHBOARD) ? <DashboardView
@@ -983,6 +1114,16 @@ export default function App() {
               userProfile={userProfile}
               workspaceId={currentWorkspaceId}
             /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/admin/approvals" element={hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) ? <PendingApprovalsView
+              userProfile={userProfile}
+              workspaceId={currentWorkspaceId}
+              user={user}
+              deleteProduct={deleteProduct}
+              deleteCustomer={deleteCustomer}
+              deleteIngredient={deleteIngredient}
+              showNotification={showNotification}
+            /> : <Navigate to="/dashboard" replace />} />
+
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -1125,9 +1266,9 @@ export default function App() {
           />
 
           {/* Sidebar Menu - Pushes Content */}
-          <div className={`lg:hidden fixed left-0 top-0 bottom-0 w-64 bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ease-out`}>
-            {/* Header */}
-            <div className="p-6 border-b border-slate-800">
+          <div className={`lg:hidden fixed left-0 top-0 bottom-0 w-64 bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ease-out flex flex-col`}>
+            {/* Header - Fixed */}
+            <div className="p-6 border-b border-slate-800 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center">
                   <Package size={24} className="text-white" />
@@ -1139,8 +1280,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Navigation */}
-            <div className="flex-1 overflow-y-auto py-4">
+            {/* Navigation - Scrollable */}
+            <div className="flex-1 overflow-y-auto py-4 custom-scrollbar">
               {/* Main Navigation */}
               <div className="px-3 space-y-1">
                 {[
@@ -1197,10 +1338,138 @@ export default function App() {
                   </button>
                 ))}
               </div>
+
+              {/* Admin Section */}
+              {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
+                <>
+                  <div className="my-4 mx-3 border-t border-slate-800" />
+                  <div className="px-3 mb-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4">Admin</p>
+                  </div>
+                  <div className="px-3 space-y-1">
+                    <button
+                      onClick={() => {
+                        navigate('/team');
+                        setShowMobileMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'team'
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                    >
+                      <Users size={20} strokeWidth={activeTab === 'team' ? 2.5 : 2} />
+                      <span className={`text-sm ${activeTab === 'team' ? 'font-semibold' : 'font-medium'}`}>
+                        Équipe
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        navigate('/logs');
+                        setShowMobileMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'logs'
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                    >
+                      <Clock size={20} strokeWidth={activeTab === 'logs' ? 2.5 : 2} />
+                      <span className={`text-sm ${activeTab === 'logs' ? 'font-semibold' : 'font-medium'}`}>
+                        Journal d'Activité
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        navigate('/admin/approvals');
+                        setShowMobileMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'admin/approvals'
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                    >
+                      <AlertTriangle size={20} strokeWidth={2.5} />
+                      <span className={`text-sm ${activeTab === 'admin/approvals' ? 'font-semibold' : 'font-medium'}`}>
+                        Approbations
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Finance Section */}
+              {hasPermission(userProfile, PERMISSIONS.VIEW_FINANCIAL_ANALYTICS) && (
+                <>
+                  <div className="my-4 mx-3 border-t border-slate-800" />
+                  <div className="px-3 mb-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4">Finance</p>
+                  </div>
+                  <div className="px-3 space-y-1">
+                    <button
+                      onClick={() => {
+                        navigate('/expenses');
+                        setShowMobileMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'expenses'
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                    >
+                      <DollarSign size={20} strokeWidth={2.5} />
+                      <span className={`text-sm ${activeTab === 'expenses' ? 'font-semibold' : 'font-medium'}`}>
+                        Dépenses
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        navigate('/finance');
+                        setShowMobileMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'finance'
+                        ? 'bg-indigo-500 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                    >
+                      <BarChart2 size={20} strokeWidth={2.5} />
+                      <span className={`text-sm ${activeTab === 'finance' ? 'font-semibold' : 'font-medium'}`}>
+                        Rapport P&L
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* User Deletion Requests */}
+              {pendingDeletionCount > 0 && (
+                <>
+                  <div className="my-4 mx-3 border-t border-slate-800" />
+                  <div className="px-3 space-y-1">
+                    <button
+                      onClick={() => {
+                        setShowDeletionPanel(true);
+                        setShowMobileMenu(false);
+                      }}
+                      className="w-full flex items-center justify-between px-4 py-3 rounded-lg transition-all bg-amber-900/30 text-amber-400 hover:bg-amber-900/50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle size={20} strokeWidth={2.5} />
+                        <span className="text-sm font-semibold">
+                          Mes demandes
+                        </span>
+                      </div>
+                      <span className="bg-amber-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                        {pendingDeletionCount}
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* Footer - User Profile */}
-            <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800 bg-slate-900">
+            {/* Footer - User Profile - Fixed */}
+            <div className="p-4 border-t border-slate-800 bg-slate-900 flex-shrink-0">
               <div className="flex items-center gap-3 px-2">
                 <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
                   <User size={20} className="text-indigo-600" />
@@ -1315,6 +1584,13 @@ export default function App() {
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
       `}</style>
+      {/* Deletion Requests Panel */}
+      <DeletionRequestsPanel
+        user={user}
+        workspaceId={currentWorkspaceId}
+        isOpen={showDeletionPanel}
+        onClose={() => setShowDeletionPanel(false)}
+      />
     </div >
   );
 }
