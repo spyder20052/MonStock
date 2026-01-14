@@ -3,7 +3,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, History, Settings,
   Plus, Trash2, Search, AlertTriangle, TrendingUp, DollarSign, BarChart2,
   Save, X, Minus, QrCode, Printer, Scan, Loader, FileText, Download, LogOut, Edit3,
-  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users, Clock, Wifi, WifiOff, RefreshCw, Menu, BookOpen, HelpCircle
+  User, Mail, Lock, Eye, EyeOff, Check, ChevronLeft, ChevronRight, Calendar, Phone, Image, Users, Clock, Wifi, WifiOff, RefreshCw, Menu, BookOpen, HelpCircle, MessageCircle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
@@ -11,7 +11,7 @@ import {
   deleteDoc, onSnapshot, query, where, orderBy, writeBatch, serverTimestamp, increment, enableIndexedDbPersistence, arrayUnion, getDoc, setDoc
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, signOut, updateProfile, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
-import { ROLES, PERMISSIONS, hasPermission } from './utils/permissions';
+import { ROLES, PERMISSIONS, hasPermission, canAccessPage, PAGE_PERMISSIONS } from './utils/permissions';
 import { logAction, LOG_ACTIONS } from './utils/logger';
 import { requiresApproval, createDeletionRequest, canDeleteDirectly, translateReasons } from './utils/approvalHelpers';
 import DashboardView from './pages/Dashboard/DashboardView';
@@ -28,6 +28,7 @@ import FinanceView from './pages/Analytics/FinanceView';
 import ActivityLogView from './pages/Admin/ActivityLogView';
 import PendingApprovalsView from './pages/Admin/PendingApprovalsView';
 import HelpView from './pages/Help/HelpView';
+import MessagesView from './pages/Messages/MessagesView';
 import DeletionRequestsPanel from './components/DeletionRequestsPanel';
 import CreateCustomerModal from './components/modals/CreateCustomerModal';
 import CustomerSelectorModal from './components/modals/CustomerSelectorModal';
@@ -110,12 +111,20 @@ export default function App() {
   // --- Authentification & Initialisation ---
 
   // Helper Component for Route Protection
-  const ProtectedRoute = ({ permission, children }) => {
+  const ProtectedRoute = ({ permission, pagePath, children }) => {
     if (loading) return <div className="h-screen flex items-center justify-center"><Loader className="animate-spin" /></div>;
     if (!user) return <Navigate to="/" replace />;
+
+    // Check page-level access if pagePath is provided
+    if (pagePath && !canAccessPage(userProfile, pagePath)) {
+      return <Navigate to="/dashboard" replace />;
+    }
+
+    // Legacy permission check (kept for backward compatibility)
     if (permission && !hasPermission(userProfile, permission)) {
       return <Navigate to="/dashboard" replace />;
     }
+
     return children;
   };
 
@@ -909,6 +918,14 @@ export default function App() {
             <span className="font-medium">Aide & Guide</span>
           </Link>
 
+          {/* Messages Link */}
+          {hasPermission(userProfile, PERMISSIONS.VIEW_MESSAGES) && (
+            <Link to="/messages" className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'messages' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+              <MessageCircle size={22} />
+              <span className="font-medium">Messages</span>
+            </Link>
+          )}
+
           {hasPermission(userProfile, PERMISSIONS.MANAGE_TEAM) && (
             <Link to="/team" className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${activeTab === 'team' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}>
               <Users size={20} />
@@ -1137,6 +1154,16 @@ export default function App() {
               showNotification={showNotification}
             /> : <Navigate to="/dashboard" replace />} />
 
+            <Route path="/messages" element={
+              <ProtectedRoute pagePath="/messages">
+                <MessagesView
+                  user={user}
+                  userProfile={userProfile}
+                  currentWorkspaceId={currentWorkspaceId}
+                />
+              </ProtectedRoute>
+            } />
+
             <Route path="/help" element={<HelpView userProfile={userProfile} customerManagementEnabled={customerManagementEnabled} />} />
 
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -1300,16 +1327,17 @@ export default function App() {
               {/* Main Navigation */}
               <div className="px-3 space-y-1">
                 {[
-                  { id: 'dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
-                  { id: 'pos', icon: ShoppingCart, label: 'Caisse (Scan)' },
-                  { id: 'inventory', icon: Package, label: 'Produits & QR' },
-                  { id: 'sales_history', icon: History, label: 'Historique' },
-                  { id: 'analytics', icon: BarChart2, label: 'Analyses' },
-                ].map(item => (
+                  { id: 'dashboard', icon: LayoutDashboard, label: 'Tableau de bord', path: '/dashboard' },
+                  { id: 'pos', icon: ShoppingCart, label: 'Caisse (Scan)', path: '/pos', permission: PERMISSIONS.ACCESS_POS },
+                  { id: 'inventory', icon: Package, label: 'Produits & QR', path: '/inventory', permission: PERMISSIONS.VIEW_STOCK },
+                  { id: 'history', icon: History, label: 'Historique', path: '/history', permission: PERMISSIONS.VIEW_SALES_HISTORY },
+                  { id: 'analytics', icon: BarChart2, label: 'Analyses', path: '/analytics', permission: PERMISSIONS.VIEW_FINANCIAL_ANALYTICS },
+                  { id: 'messages', icon: MessageCircle, label: 'Messages', path: '/messages', permission: PERMISSIONS.VIEW_MESSAGES },
+                ].filter(item => !item.permission || hasPermission(userProfile, item.permission)).map(item => (
                   <button
                     key={item.id}
                     onClick={() => {
-                      navigate(`/${item.id}`);
+                      navigate(item.path || `/${item.id}`);
                       setShowMobileMenu(false);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === item.id
@@ -1331,11 +1359,11 @@ export default function App() {
               {/* Secondary Navigation */}
               <div className="px-3 space-y-1">
                 {[
-                  ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients' }] : []),
-                  { id: 'ingredients', icon: Package, label: 'Ingrédients' },
+                  ...(customerManagementEnabled ? [{ id: 'customers', icon: Users, label: 'Clients', permission: PERMISSIONS.VIEW_CUSTOMERS }] : []),
+                  { id: 'ingredients', icon: Package, label: 'Ingrédients', permission: PERMISSIONS.VIEW_STOCK },
                   { id: 'help', icon: HelpCircle, label: 'Aide & Guide' },
                   { id: 'profile', icon: Settings, label: 'Paramètres' },
-                ].map(item => (
+                ].filter(item => !item.permission || hasPermission(userProfile, item.permission)).map(item => (
                   <button
                     key={item.id}
                     onClick={() => {
