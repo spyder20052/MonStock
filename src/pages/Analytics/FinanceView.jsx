@@ -186,7 +186,7 @@ const FinanceView = ({ workspaceId }) => {
                 {/* Main Graph: Evolution */}
                 <Card className="lg:col-span-2 p-6 bg-white shadow-sm">
                     <h3 className="font-bold text-slate-800 mb-6">Évolution Financière (Journalière)</h3>
-                    <div className="h-80 w-full">
+                    <div className="w-full" style={{ height: '20rem' }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={chartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
@@ -209,7 +209,7 @@ const FinanceView = ({ workspaceId }) => {
                 {/* Expenses Breakdown */}
                 <Card className="p-6 bg-white shadow-sm">
                     <h3 className="font-bold text-slate-800 mb-6">Répartition des Dépenses</h3>
-                    <div className="h-64 w-full">
+                    <div className="w-full" style={{ height: '16rem' }}>
                         {expenseBreakdown.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>

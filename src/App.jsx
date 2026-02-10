@@ -154,10 +154,6 @@ export default function App() {
         setUserProfile(data);
         setCurrentWorkspaceId(data.ownerId);
 
-        // Load settings
-        const savedSetting = localStorage.getItem(`customerMgmt_${user.uid}`);
-        setCustomerManagementEnabled(savedSetting === 'true');
-
         setLoading(false);
       } else {
         // Profile doesn't exist? Try to create it (Invite or New Owner)
@@ -244,11 +240,30 @@ export default function App() {
       setIngredients(items);
     }, (error) => console.error("Erreur ingrédients:", error));
 
+    // Workspace Settings - Shared across all team members
+    const settingsRef = doc(db, 'users', currentWorkspaceId, 'settings', 'general');
+    const unsubSettings = onSnapshot(settingsRef, (settingsSnap) => {
+      if (settingsSnap.exists()) {
+        const settingsData = settingsSnap.data();
+        setCustomerManagementEnabled(settingsData.customerManagementEnabled === true);
+      } else {
+        // Migrate from localStorage if available (one-time migration)
+        const savedSetting = localStorage.getItem(`customerMgmt_${user?.uid}`);
+        if (savedSetting === 'true') {
+          // Auto-migrate to Firestore
+          setDoc(settingsRef, { customerManagementEnabled: true }, { merge: true });
+        } else {
+          setCustomerManagementEnabled(false);
+        }
+      }
+    }, (error) => console.error("Erreur settings:", error));
+
     return () => {
       unsubProducts();
       unsubSales();
       unsubCustomers();
       unsubIngredients();
+      unsubSettings();
     };
   }, [user, currentWorkspaceId]);
 

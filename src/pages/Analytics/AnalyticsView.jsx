@@ -256,7 +256,7 @@ const AnalyticsView = ({ sales, products, setActiveTab, customers = [] }) => {
                 <h3 className="text-base lg:text-lg font-bold text-slate-800 mb-4 lg:mb-6">Évolution des ventes</h3>
 
                 {/* Desktop: Recharts Bar Chart */}
-                <div className="hidden lg:block h-64 w-full">
+                <div className="hidden lg:block w-full" style={{ height: '16rem' }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={salesByDay}>
                             <XAxis

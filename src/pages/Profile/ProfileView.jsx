@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, AlertTriangle, User, Mail, Loader, Save, Phone, Lock, Eye, EyeOff, Users } from 'lucide-react';
 import { updateProfile, updateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
-import { writeBatch, doc } from 'firebase/firestore';
+import { writeBatch, doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
 import { getRoleLabel, hasPermission, PERMISSIONS } from '../../utils/permissions';
 
@@ -315,10 +315,16 @@ const ProfileView = ({
                     </div>
                     <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                             const newValue = !customerManagementEnabled;
                             setCustomerManagementEnabled(newValue);
-                            localStorage.setItem(`customerMgmt_${user?.uid}`, String(newValue));
+                            // Save to Firestore workspace settings (shared across all team members)
+                            try {
+                                const settingsRef = doc(db, 'users', workspaceId, 'settings', 'general');
+                                await setDoc(settingsRef, { customerManagementEnabled: newValue }, { merge: true });
+                            } catch (e) {
+                                console.error('Error saving customer management setting:', e);
+                            }
                             showNotification(newValue ? 'Gestion clients activée' : 'Gestion clients désactivée');
                         }}
                         className={`relative w-12 h-6 rounded-full transition-colors ${customerManagementEnabled ? 'bg-indigo-500' : 'bg-slate-300'
