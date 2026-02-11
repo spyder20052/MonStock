@@ -824,6 +824,74 @@ export default function App() {
     }
   };
 
+  const deleteSale = async (sale) => {
+    if (!user || !sale) return;
+
+    try {
+      const batch = writeBatch(db);
+
+      // 1. Delete the sale document
+      const saleRef = doc(db, 'users', currentWorkspaceId, 'sales', sale.id);
+      batch.delete(saleRef);
+
+      // 2. Restore stock for each item in the sale
+      if (sale.items && sale.items.length > 0) {
+        for (const item of sale.items) {
+          const currentProduct = products.find(p => p.id === item.id);
+          if (currentProduct && !currentProduct.isComposite) {
+            const productRef = doc(db, 'users', currentWorkspaceId, 'products', item.id);
+            batch.update(productRef, {
+              stock: increment(item.qty || item.quantity || 1)
+            });
+          }
+        }
+      }
+
+      // 3. Update customer stats if the sale had a customer
+      if (sale.customerId) {
+        const customerRef = doc(db, 'users', currentWorkspaceId, 'customers', sale.customerId);
+        const customerSnap = await getDoc(customerRef);
+
+        if (customerSnap.exists()) {
+          const totalItems = sale.items?.reduce((sum, item) => sum + (item.qty || item.quantity || 1), 0) || 0;
+
+          const updateData = {
+            totalPurchases: increment(-1),
+            totalSpent: increment(-(sale.total || 0)),
+            totalItems: increment(-totalItems)
+          };
+
+          // If it was a credit sale with remaining debt, reduce customer debt
+          if (sale.isCredit) {
+            const remainingDebt = (sale.total || 0) - (sale.amountPaid || 0);
+            if (remainingDebt > 0) {
+              updateData.debt = increment(-remainingDebt);
+            }
+          }
+
+          batch.update(customerRef, updateData);
+        }
+      }
+
+      await batch.commit();
+
+      // Log the action
+      await logAction(
+        db,
+        currentWorkspaceId,
+        { uid: user.uid, ...userProfile },
+        LOG_ACTIONS.SALE_DELETED,
+        `Vente #${sale.id.slice(-6)} supprimée (${formatMoney(sale.total || 0)})`,
+        { saleId: sale.id, total: sale.total }
+      );
+
+      showNotification("Vente supprimée avec succès", "success");
+    } catch (e) {
+      console.error("Error deleting sale:", e);
+      showNotification("Erreur lors de la suppression", "error");
+    }
+  };
+
   // --- Stats Dashboard ---
 
   const stats = useMemo(() => {
@@ -1098,6 +1166,9 @@ export default function App() {
             <Route path="/sales_history" element={hasPermission(userProfile, PERMISSIONS.VIEW_SALES_HISTORY) ? <HistoryView
               sales={sales}
               setViewingReceipt={setViewingReceipt}
+              deleteSale={deleteSale}
+              userProfile={userProfile}
+              showNotification={showNotification}
             /> : <Navigate to="/dashboard" replace />} />
             <Route path="/customers" element={(customerManagementEnabled && hasPermission(userProfile, PERMISSIONS.VIEW_CUSTOMERS)) ? <CustomerView
               customers={customers}

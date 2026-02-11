@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Calendar, FileText, Printer, ChevronLeft, ChevronRight, Phone, DollarSign, RefreshCw, Clock } from 'lucide-react';
+import { Calendar, FileText, Printer, ChevronLeft, ChevronRight, Phone, DollarSign, RefreshCw, Clock, Trash2, AlertTriangle } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatMoney } from '../../utils/helpers';
+import { PERMISSIONS, hasPermission } from '../../utils/permissions';
 
-const HistoryView = ({ sales, setViewingReceipt }) => {
+const HistoryView = ({ sales, setViewingReceipt, deleteSale, userProfile, showNotification }) => {
     const [selectedDate, setSelectedDate] = useState(new Date());
+    const [deletingSale, setDeletingSale] = useState(null); // Sale to confirm deletion
 
     const formatDateKey = (date) => {
         return date.toISOString().split('T')[0];
@@ -109,6 +111,14 @@ const HistoryView = ({ sales, setViewingReceipt }) => {
         link.click();
         document.body.removeChild(link);
     };
+
+    const handleDeleteSale = async () => {
+        if (!deletingSale || !deleteSale) return;
+        await deleteSale(deletingSale);
+        setDeletingSale(null);
+    };
+
+    const canDelete = hasPermission(userProfile, PERMISSIONS.MANAGE_SALES);
 
     return (
         <div className="space-y-4">
@@ -236,12 +246,12 @@ const HistoryView = ({ sales, setViewingReceipt }) => {
                                             {sale.customerName !== 'Anonyme' ? sale.customerName : 'Client Anonyme'} • {sale.items?.length || 0} art.
                                         </p>
                                         <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${sale.isCredit
-                                                ? ((sale.amountPaid || 0) >= sale.total
-                                                    ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                                    : (sale.amountPaid || 0) > 0
-                                                        ? 'bg-amber-50 text-amber-600 border-amber-100'
-                                                        : 'bg-red-50 text-red-600 border-red-100')
-                                                : 'bg-emerald-50 text-emerald-600 border-emerald-100'  // Non-credit = always paid
+                                            ? ((sale.amountPaid || 0) >= sale.total
+                                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                                : (sale.amountPaid || 0) > 0
+                                                    ? 'bg-amber-50 text-amber-600 border-amber-100'
+                                                    : 'bg-red-50 text-red-600 border-red-100')
+                                            : 'bg-emerald-50 text-emerald-600 border-emerald-100'  // Non-credit = always paid
                                             }`}>
                                             <Clock size={10} />
                                             {sale.isCredit
@@ -256,7 +266,7 @@ const HistoryView = ({ sales, setViewingReceipt }) => {
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
                                 <span className="font-bold text-lg text-slate-800">{formatMoney(sale.total)}</span>
                                 <button
                                     onClick={() => setViewingReceipt(sale)}
@@ -264,11 +274,56 @@ const HistoryView = ({ sales, setViewingReceipt }) => {
                                 >
                                     <Printer size={16} />
                                 </button>
+                                {canDelete && (
+                                    <button
+                                        onClick={() => setDeletingSale(sale)}
+                                        className="p-2 bg-slate-100 text-slate-400 rounded-lg hover:bg-red-100 hover:text-red-600 transition-colors"
+                                        title="Supprimer cette vente"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))
                 )}
             </div>
+
+            {/* Delete Confirmation Modal */}
+            {deletingSale && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+                        <div className="p-6 text-center space-y-4">
+                            <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+                                <AlertTriangle size={28} className="text-red-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-800">Supprimer cette vente ?</h3>
+                                <p className="text-sm text-slate-500 mt-1">
+                                    Vente de <strong>{formatMoney(deletingSale.total)}</strong> pour <strong>{deletingSale.customerName || 'Client Anonyme'}</strong>
+                                </p>
+                                <p className="text-xs text-slate-400 mt-2">
+                                    Le stock sera restauré et les statistiques du client seront mises à jour. Cette action est irréversible.
+                                </p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setDeletingSale(null)}
+                                    className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200 transition-colors"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={handleDeleteSale}
+                                    className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors"
+                                >
+                                    Supprimer
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
