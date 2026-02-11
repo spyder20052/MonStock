@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DollarSign, X } from 'lucide-react';
-import { doc, updateDoc, increment, addDoc, collection, writeBatch } from 'firebase/firestore';
+import { doc, updateDoc, increment, addDoc, collection, writeBatch, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { formatMoney } from '../../utils/helpers';
 import { logAction, LOG_ACTIONS } from '../../utils/logger';
@@ -11,54 +11,110 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
 
     // Calculate max repayable amount
     const maxRepayAmount = sale
-        ? (sale.total - (sale.amountPaid || 0))
-        : (customer.debt || 0);
+        ? Math.max(0, (sale.total - (sale.amountPaid || 0)))
+        : Math.max(0, (customer.debt || 0));
 
     const handleRepayment = async () => {
         const repayAmount = parseFloat(amount);
         if (!repayAmount || repayAmount <= 0 || repayAmount > maxRepayAmount) return;
 
         try {
-            const batch = writeBatch(db);
-
-            // 1. Update customer debt
+            // Fetch fresh data from Firestore to prevent double repayment
             const customerRef = doc(db, 'users', workspaceId, 'customers', customer.id);
-            batch.update(customerRef, {
-                debt: increment(-repayAmount)
-            });
+            const freshCustomerSnap = await getDoc(customerRef);
+            if (!freshCustomerSnap.exists()) {
+                showNotification("Client introuvable", "error");
+                return;
+            }
+            const freshCustomer = freshCustomerSnap.data();
+            const currentDebt = freshCustomer.debt || 0;
 
-            // 2. Update sale with payment
+            // If the debt is already 0 or negative, block repayment
+            if (currentDebt <= 0) {
+                showNotification("Ce client n'a aucune dette à rembourser", "error");
+                onClose();
+                return;
+            }
+
             if (sale) {
+                // Fetch fresh sale data to check if it's already fully paid
                 const saleRef = doc(db, 'users', workspaceId, 'sales', sale.id);
+                const freshSaleSnap = await getDoc(saleRef);
+                if (!freshSaleSnap.exists()) {
+                    showNotification("Vente introuvable", "error");
+                    return;
+                }
+                const freshSale = freshSaleSnap.data();
+                const remainingOnSale = freshSale.total - (freshSale.amountPaid || 0);
 
-                // Add payment to payments array
+                // If the sale is already fully paid, block repayment
+                if (remainingOnSale <= 0) {
+                    showNotification("Cette vente est déjà entièrement payée", "error");
+                    onClose();
+                    return;
+                }
+
+                // Clamp repayment to not exceed what's actually remaining on the sale
+                const actualRepayAmount = Math.min(repayAmount, remainingOnSale);
+                // Also clamp to not make customer debt go below 0
+                const debtDecrement = Math.min(actualRepayAmount, currentDebt);
+
+                const batch = writeBatch(db);
+
+                // 1. Update customer debt (clamped)
+                batch.update(customerRef, {
+                    debt: increment(-debtDecrement)
+                });
+
+                // 2. Update sale with payment
                 const payment = {
                     date: new Date().toISOString(),
-                    amount: repayAmount,
+                    amount: actualRepayAmount,
                     method: method
                 };
 
-                // Update sale with new payment and increment amountPaid
-                const currentPayments = sale.payments || [];
+                const currentPayments = freshSale.payments || [];
                 batch.update(saleRef, {
-                    amountPaid: increment(repayAmount),
+                    amountPaid: increment(actualRepayAmount),
                     payments: [...currentPayments, payment],
                     lastPaymentDate: new Date().toISOString()
                 });
-            }
 
-            await batch.commit();
+                await batch.commit();
 
-            // Log the repayment action
-            if (user && userProfile) {
-                await logAction(
-                    db,
-                    workspaceId,
-                    { uid: user.uid, ...userProfile },
-                    LOG_ACTIONS.DEBT_REPAID,
-                    `Remboursement de ${formatMoney(repayAmount)} par ${customer.name}${sale ? ` (Vente #${sale.id.slice(-6)})` : ''}`,
-                    { customerId: customer.id, amount: repayAmount, saleId: sale?.id }
-                );
+                // Log the repayment action
+                if (user && userProfile) {
+                    await logAction(
+                        db,
+                        workspaceId,
+                        { uid: user.uid, ...userProfile },
+                        LOG_ACTIONS.DEBT_REPAID,
+                        `Remboursement de ${formatMoney(actualRepayAmount)} par ${customer.name} (Vente #${sale.id.slice(-6)})`,
+                        { customerId: customer.id, amount: actualRepayAmount, saleId: sale.id }
+                    );
+                }
+            } else {
+                // General debt repayment (no specific sale)
+                // Clamp to not make customer debt go below 0
+                const actualRepayAmount = Math.min(repayAmount, currentDebt);
+
+                const batch = writeBatch(db);
+                batch.update(customerRef, {
+                    debt: increment(-actualRepayAmount)
+                });
+                await batch.commit();
+
+                // Log the repayment action
+                if (user && userProfile) {
+                    await logAction(
+                        db,
+                        workspaceId,
+                        { uid: user.uid, ...userProfile },
+                        LOG_ACTIONS.DEBT_REPAID,
+                        `Remboursement de ${formatMoney(actualRepayAmount)} par ${customer.name}`,
+                        { customerId: customer.id, amount: actualRepayAmount }
+                    );
+                }
             }
 
             showNotification("Remboursement enregistré !", "success");

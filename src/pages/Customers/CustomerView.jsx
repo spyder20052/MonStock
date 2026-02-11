@@ -95,7 +95,7 @@ const CustomerView = ({
         return {
             total: allEnrichedCustomers.length,
             totalRevenue: allEnrichedCustomers.reduce((sum, c) => sum + (c.totalSpent || 0), 0),
-            totalDebt: allEnrichedCustomers.reduce((sum, c) => sum + (c.debt || 0), 0),
+            totalDebt: allEnrichedCustomers.reduce((sum, c) => sum + Math.max(0, c.debt || 0), 0),
             avgSpent: allEnrichedCustomers.length > 0 ? allEnrichedCustomers.reduce((sum, c) => sum + (c.totalSpent || 0), 0) / allEnrichedCustomers.length : 0,
             topCustomer: allEnrichedCustomers.reduce((max, c) => (c.totalSpent || 0) > (max.totalSpent || 0) ? c : max, allEnrichedCustomers[0] || {})
         };
@@ -174,10 +174,10 @@ const CustomerView = ({
                             <p className="text-xs text-blue-600 font-medium">Articles</p>
                             <p className="text-xl font-bold text-blue-700">{customer.totalItems || 0}</p>
                         </div>
-                        <div className={`p-4 rounded-lg ${(customer.debt || 0) > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
-                            <p className={`text-xs font-medium ${(customer.debt || 0) > 0 ? 'text-red-600' : 'text-slate-500'}`}>Dette</p>
-                            <p className={`text-xl font-bold ${(customer.debt || 0) > 0 ? 'text-red-700' : 'text-slate-600'}`}>
-                                {formatMoney(customer.debt || 0)}
+                        <div className={`p-4 rounded-lg ${Math.max(0, customer.debt || 0) > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                            <p className={`text-xs font-medium ${Math.max(0, customer.debt || 0) > 0 ? 'text-red-600' : 'text-slate-500'}`}>Dette</p>
+                            <p className={`text-xl font-bold ${Math.max(0, customer.debt || 0) > 0 ? 'text-red-700' : 'text-slate-600'}`}>
+                                {formatMoney(Math.max(0, customer.debt || 0))}
                             </p>
                         </div>
                     </div>
@@ -366,10 +366,10 @@ const CustomerView = ({
                                         <div className="min-w-0">
                                             <div className="flex items-center gap-2">
                                                 <h3 className="font-bold text-slate-800 truncate">{customer.name}</h3>
-                                                {(customer.debt || 0) > 0 && (
+                                                {Math.max(0, customer.debt || 0) > 0 && (
                                                     <span className="px-1.5 py-0.5 bg-red-100 text-red-600 rounded text-[10px] font-bold flex items-center gap-1">
                                                         <AlertTriangle size={10} />
-                                                        {formatMoney(customer.debt)}
+                                                        {formatMoney(Math.max(0, customer.debt || 0))}
                                                     </span>
                                                 )}
                                             </div>
