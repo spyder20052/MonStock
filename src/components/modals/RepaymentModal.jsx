@@ -29,14 +29,8 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
             const freshCustomer = freshCustomerSnap.data();
             const currentDebt = freshCustomer.debt || 0;
 
-            // If the debt is already 0 or negative, block repayment
-            if (currentDebt <= 0) {
-                showNotification("Ce client n'a aucune dette à rembourser", "error");
-                onClose();
-                return;
-            }
-
             if (sale) {
+                // === SALE-SPECIFIC REPAYMENT ===
                 // Fetch fresh sale data to check if it's already fully paid
                 const saleRef = doc(db, 'users', workspaceId, 'sales', sale.id);
                 const freshSaleSnap = await getDoc(saleRef);
@@ -56,15 +50,17 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
 
                 // Clamp repayment to not exceed what's actually remaining on the sale
                 const actualRepayAmount = Math.min(repayAmount, remainingOnSale);
-                // Also clamp to not make customer debt go below 0
-                const debtDecrement = Math.min(actualRepayAmount, currentDebt);
+                // Decrement customer debt field, but only if it's > 0 (don't go below 0)
+                const debtDecrement = Math.min(actualRepayAmount, Math.max(0, currentDebt));
 
                 const batch = writeBatch(db);
 
-                // 1. Update customer debt (clamped)
-                batch.update(customerRef, {
-                    debt: increment(-debtDecrement)
-                });
+                // 1. Update customer debt (only if there's debt to decrement)
+                if (debtDecrement > 0) {
+                    batch.update(customerRef, {
+                        debt: increment(-debtDecrement)
+                    });
+                }
 
                 // 2. Update sale with payment
                 const payment = {
@@ -94,7 +90,14 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
                     );
                 }
             } else {
-                // General debt repayment (no specific sale)
+                // === GENERAL DEBT REPAYMENT (no specific sale) ===
+                // If the debt is already 0 or negative, block repayment
+                if (currentDebt <= 0) {
+                    showNotification("Ce client n'a aucune dette à rembourser", "error");
+                    onClose();
+                    return;
+                }
+
                 // Clamp to not make customer debt go below 0
                 const actualRepayAmount = Math.min(repayAmount, currentDebt);
 
