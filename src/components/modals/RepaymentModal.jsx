@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DollarSign, X } from 'lucide-react';
-import { doc, updateDoc, increment, addDoc, collection, writeBatch, getDoc } from 'firebase/firestore';
+import { doc, increment, collection, writeBatch, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { formatMoney } from '../../utils/helpers';
 import { logAction, LOG_ACTIONS } from '../../utils/logger';
@@ -8,6 +8,18 @@ import { logAction, LOG_ACTIONS } from '../../utils/logger';
 const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null, workspaceId, userProfile }) => {
     const [amount, setAmount] = useState('');
     const [method, setMethod] = useState('cash');
+
+    // Guard: if customer is undefined, show error and close
+    if (!customer) {
+        return (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 text-center">
+                    <p className="text-red-600 font-bold mb-4">Client introuvable</p>
+                    <button onClick={onClose} className="px-4 py-2 bg-slate-200 rounded-lg">Fermer</button>
+                </div>
+            </div>
+        );
+    }
 
     // Calculate max repayable amount
     const maxRepayAmount = sale
@@ -19,7 +31,6 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
         if (!repayAmount || repayAmount <= 0 || repayAmount > maxRepayAmount) return;
 
         try {
-            // Fetch fresh data from Firestore to prevent double repayment
             const customerRef = doc(db, 'users', workspaceId, 'customers', customer.id);
             const freshCustomerSnap = await getDoc(customerRef);
             if (!freshCustomerSnap.exists()) {
@@ -31,7 +42,7 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
 
             if (sale) {
                 // === SALE-SPECIFIC REPAYMENT ===
-                // Fetch fresh sale data to check if it's already fully paid
+                // Only check the sale's remaining balance, NOT customer.debt
                 const saleRef = doc(db, 'users', workspaceId, 'sales', sale.id);
                 const freshSaleSnap = await getDoc(saleRef);
                 if (!freshSaleSnap.exists()) {
@@ -41,28 +52,17 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
                 const freshSale = freshSaleSnap.data();
                 const remainingOnSale = freshSale.total - (freshSale.amountPaid || 0);
 
-                // If the sale is already fully paid, block repayment
                 if (remainingOnSale <= 0) {
                     showNotification("Cette vente est déjà entièrement payée", "error");
                     onClose();
                     return;
                 }
 
-                // Clamp repayment to not exceed what's actually remaining on the sale
                 const actualRepayAmount = Math.min(repayAmount, remainingOnSale);
-                // Decrement customer debt field, but only if it's > 0 (don't go below 0)
-                const debtDecrement = Math.min(actualRepayAmount, Math.max(0, currentDebt));
 
                 const batch = writeBatch(db);
 
-                // 1. Update customer debt (only if there's debt to decrement)
-                if (debtDecrement > 0) {
-                    batch.update(customerRef, {
-                        debt: increment(-debtDecrement)
-                    });
-                }
-
-                // 2. Update sale with payment
+                // Update sale with payment
                 const payment = {
                     date: new Date().toISOString(),
                     amount: actualRepayAmount,
@@ -76,9 +76,16 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
                     lastPaymentDate: new Date().toISOString()
                 });
 
+                // Also decrement customer.debt if possible (best effort sync)
+                if (currentDebt > 0) {
+                    const debtDecrement = Math.min(actualRepayAmount, currentDebt);
+                    batch.update(customerRef, {
+                        debt: increment(-debtDecrement)
+                    });
+                }
+
                 await batch.commit();
 
-                // Log the repayment action
                 if (user && userProfile) {
                     await logAction(
                         db,
@@ -90,24 +97,40 @@ const RepaymentModal = ({ customer, onClose, user, showNotification, sale = null
                     );
                 }
             } else {
-                // === GENERAL DEBT REPAYMENT (no specific sale) ===
-                // If the debt is already 0 or negative, block repayment
-                if (currentDebt <= 0) {
+                // === GENERAL DEBT REPAYMENT ===
+                // Calculate actual debt from all unpaid credit sales (source of truth)
+                let actualDebt = currentDebt;
+                try {
+                    const salesRef = collection(db, 'users', workspaceId, 'sales');
+                    const q = query(salesRef, where('customerId', '==', customer.id), where('isCredit', '==', true));
+                    const salesSnap = await getDocs(q);
+                    const calculatedDebt = salesSnap.docs.reduce((sum, d) => {
+                        const s = d.data();
+                        const remaining = (s.total || 0) - (s.amountPaid || 0);
+                        return sum + (remaining > 0 ? remaining : 0);
+                    }, 0);
+                    actualDebt = Math.max(calculatedDebt, currentDebt);
+                } catch (e) {
+                    console.warn("Could not recalculate debt from sales, using stored value:", e);
+                }
+
+                if (actualDebt <= 0) {
                     showNotification("Ce client n'a aucune dette à rembourser", "error");
                     onClose();
                     return;
                 }
 
-                // Clamp to not make customer debt go below 0
-                const actualRepayAmount = Math.min(repayAmount, currentDebt);
+                const actualRepayAmount = Math.min(repayAmount, actualDebt);
 
                 const batch = writeBatch(db);
-                batch.update(customerRef, {
-                    debt: increment(-actualRepayAmount)
-                });
+                if (currentDebt > 0) {
+                    const debtDecrement = Math.min(actualRepayAmount, currentDebt);
+                    batch.update(customerRef, {
+                        debt: increment(-debtDecrement)
+                    });
+                }
                 await batch.commit();
 
-                // Log the repayment action
                 if (user && userProfile) {
                     await logAction(
                         db,
